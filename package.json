@@ -1,6 +1,6 @@
 {
   "name": "dsh-project-knowledge-review",
-  "version": "0.5.11",
+  "version": "0.5.12",
   "description": "中文 DSH 本地知识复习插件：零配置资料库、证据优先问答、Markdown 摘要与二次分类。",
   "type": "module",
   "license": "MIT",
@@ -42,6 +42,7 @@
   },
   "files": [
     "lib",
+    "docs/images",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
