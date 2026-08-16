@@ -2,6 +2,8 @@
     - id: project-knowledge-review
       name: dsh-project-knowledge-review
       config:
+        # 安装后可在 DSH Web → 设置 → 知识复习中热更新以下配置。
+        enabled: true
         # 默认零配置本地模式：无需 PostgreSQL、向量模型和 API Key。
         mode: local
         localStorePath: ~/.dsh/project-knowledge-review/knowledge.json
@@ -9,3 +11,12 @@
         # 仅 mode=project-rag 时需要以下两项。
         ragBaseUrl: http://127.0.0.1:8090
         requestTimeoutMs: 120000
+        # OCR/ASR 默认关闭；API Key 在 Web 设置页写入 DSH 凭据库。
+        ocrEnabled: false
+        ocrBaseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+        ocrModel: qwen-vl-ocr
+        ocrApiKeyEnv: DSH_KNOWLEDGE_OCR_API_KEY
+        asrEnabled: false
+        asrBaseUrl: https://api.openai.com/v1
+        asrModel: whisper-1
+        asrApiKeyEnv: DSH_KNOWLEDGE_ASR_API_KEY
