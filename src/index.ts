@@ -10,12 +10,10 @@ export const name = 'project-knowledge-review'
 export const inject = ['tools', 'systemPrompt']
 
 export interface Config {
-  /** 项目 RAG 公共 API 根地址。 */
+  /** 项目本机 RAG API 根地址；插件不携带登录令牌。 */
   ragBaseUrl: string
   /** 系统提示词中展示的项目名称。 */
   projectName: string
-  /** 项目登录会话的 Bearer Token；留空时仅安全拒答。 */
-  authorizationToken: string
   /** 单次 RAG HTTP 请求的超时毫秒数。 */
   requestTimeoutMs: number
 }
@@ -23,7 +21,6 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   ragBaseUrl: Schema.string().default('http://127.0.0.1:8090'),
   projectName: Schema.string().default('学迹智配 Agent'),
-  authorizationToken: Schema.string().default(process.env.PROJECT_RAG_BEARER_TOKEN ?? ''),
   requestTimeoutMs: Schema.number().default(120_000),
 })
 
@@ -54,26 +51,18 @@ export function apply(ctx: Context, config: Config): void {
 
   const ragConfig = {
     ragBaseUrl: config.ragBaseUrl,
-    authorizationToken: config.authorizationToken,
     requestTimeoutMs: config.requestTimeoutMs,
   }
 
   ctx.tools.register(defineTool({
     name: 'project_knowledge_search',
-    description: '在当前项目的私有 RAG 学习资料中检索知识。知识性问题必须先调用；证据不足时会返回 REFUSED，禁止自行补充答案。',
+    description: '在当前项目的 DSH 专用 RAG 资料分区中检索知识。知识性问题必须先调用；证据不足时会返回 REFUSED，禁止自行补充答案。',
     parameters: {
       question: { type: 'string', required: true, description: '用户希望学习或复习的具体知识问题。' },
       topK: { type: 'integer', description: '返回证据数，默认 5，建议 1 到 10。' },
     },
     output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
     async execute(args) {
-      if (!ragConfig.authorizationToken.trim()) {
-        return JSON.stringify({
-          answerStatus: 'REFUSED',
-          message: '未配置项目 RAG 登录令牌，不能跨过项目的用户资料隔离回答。请设置 PROJECT_RAG_BEARER_TOKEN 后重试。',
-          evidences: [],
-        })
-      }
       try {
         return renderSearchResult(await searchProjectKnowledge(ragConfig, args.question, args.topK ?? 5))
       } catch (error) {
@@ -96,12 +85,6 @@ export function apply(ctx: Context, config: Config): void {
     },
     output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
     async execute(args) {
-      if (!ragConfig.authorizationToken.trim()) {
-        return JSON.stringify({
-          status: 'FAILED',
-          message: '未配置项目 RAG 登录令牌，不能跨过项目的用户资料隔离提交视频。请设置 PROJECT_RAG_BEARER_TOKEN 后重试。',
-        })
-      }
       try {
         const value = await importProjectVideo(ragConfig, args.url, args.highPrecision ?? false)
         return JSON.stringify({

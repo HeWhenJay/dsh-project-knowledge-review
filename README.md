@@ -18,7 +18,6 @@
 
 - DSH Web profile。
 - 项目 Python API 正在运行，默认地址为 `http://127.0.0.1:8090`。
-- 通过环境变量 `PROJECT_RAG_BEARER_TOKEN` 注入当前项目登录会话的 Bearer Token；该值绝不能提交到仓库或作为工具参数提供给模型。
 - 需要使用视频时，项目已配置对应公开平台的视频转写能力，并且用户对该 URL 具有学习使用授权。
 
 ## 安装
@@ -48,11 +47,10 @@ dsh plugin --profile web add .\tools\dsh-project-knowledge-review
       config:
         ragBaseUrl: http://127.0.0.1:8090
         projectName: 学迹智配 Agent
-        authorizationToken: '' # 建议留空，改用环境变量 PROJECT_RAG_BEARER_TOKEN
         requestTimeoutMs: 120000
 ```
 
-在 DSH profile 的 `cordis.patch.yml` 中覆盖即可修改 RAG 地址、项目名称和超时。认证令牌优先通过启动 DSH 的环境变量设置：`$env:PROJECT_RAG_BEARER_TOKEN='你的登录令牌'`。如果环境变量和配置均为空，插件会安全拒答，不会绕过项目的用户资料隔离。
+在 DSH profile 的 `cordis.patch.yml` 中覆盖即可修改 RAG 地址、项目名称和超时。插件直接复用当前 DSH 会话的模型完成最终回答；项目 RAG 的 embedding、rerank、ASR 等密钥仍由 Python 服务自己的环境配置提供，不需要在插件中重复设置。
 
 ## 供模型调用的工具
 
@@ -63,7 +61,9 @@ dsh plugin --profile web add .\tools\dsh-project-knowledge-review
 
 - 插件仅请求配置的项目 RAG API，不会自行联网搜索知识答案。
 - 视频仅在用户提供 URL 并确认其可用于学习后才会提交给项目服务。
-- 项目 API 的认证、用户隔离和资料可见范围仍由项目后端负责。
+- 插件不保存、不读取、不传递项目登录令牌；本机接口通过回环地址限制访问，并使用独立的 `DSH_PLUGIN_RAG_USER_ID` 资料分区。
+- 插件不单独配置模型或 API Key。检索所需 embedding、rerank、ASR 等能力继续使用项目 Python 服务已经配置的环境变量；最终回答由当前 DSH 会话中用户选择的模型完成。
+- 可通过 `RAG_DSH_PLUGIN_ENABLED=false` 关闭本机插件 RAG 路由。
 - 这是一个严格证据回答模式，不适合需要通用百科、新闻或开放网络检索的提问。
 
 ## 开发验证
