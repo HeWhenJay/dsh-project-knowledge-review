@@ -11,6 +11,11 @@ export interface LocalKnowledgeDocument {
   source: string
   content: string
   createdAt: string
+  updatedAt?: string
+  summary?: string
+  summarySource?: 'extractive' | 'model'
+  systemCategory?: string
+  userCategory?: string | null
 }
 
 export interface LocalEvidence {
@@ -25,7 +30,12 @@ export interface LocalKnowledgeDocumentSummary {
   title: string
   source: string
   createdAt: string
+  updatedAt?: string
   contentLength: number
+  summary?: string
+  summarySource?: 'extractive' | 'model'
+  systemCategory?: string
+  userCategory?: string | null
 }
 
 export interface LocalKnowledgeDocumentPage {
@@ -52,9 +62,14 @@ interface LocalKnowledgeIndexRecord extends LocalKnowledgeDocumentSummary {
 }
 
 interface LocalWriteJournal {
-  version: 1
+  version: 1 | 2
   document: LocalKnowledgeDocument
   record: LocalKnowledgeIndexRecord
+}
+
+interface LocalUserCategoryStore {
+  version: 1
+  categories: string[]
 }
 
 const TOKEN_PATTERN = /[\p{Script=Han}]|[a-zA-Z][a-zA-Z0-9_+#.-]*/gu
@@ -74,6 +89,7 @@ export function tokenize(text: string): string[] {
 function indexPath(path: string): string { return `${path}.index.jsonl` }
 function documentsPath(path: string): string { return `${path}.documents` }
 function journalPath(path: string): string { return `${path}.journal.json` }
+function categoriesPath(path: string): string { return `${path}.categories.json` }
 function lockDirectory(path: string): string { return `${path}.locks` }
 function contentFileName(id: string): string { return `${createHash('sha256').update(id).digest('hex')}.json` }
 
@@ -189,6 +205,11 @@ function toIndexRecord(document: LocalKnowledgeDocument, sequence: number): Loca
     source: document.source,
     createdAt: document.createdAt,
     contentLength: document.content.length,
+    updatedAt: document.updatedAt ?? document.createdAt,
+    summary: document.summary,
+    summarySource: document.summarySource,
+    systemCategory: document.systemCategory,
+    userCategory: document.userCategory,
     tokens: [...new Set(tokenize(`${document.title}\n${document.content}`))],
     contentFile: contentFileName(document.id),
   }
@@ -213,7 +234,8 @@ async function recoverPendingWrite(path: string, manifest: LocalKnowledgeManifes
   }
   await atomicWrite(resolveContentPath(path, journal.record.contentFile), `${JSON.stringify(journal.document)}\n`)
   await repairTrailingIndexLine(path)
-  if (!(await indexContainsId(path, journal.record.id))) await appendFile(indexPath(path), `${JSON.stringify(journal.record)}\n`, 'utf8')
+  if (journal.version === 2) await replaceIndexRecord(path, journal.record)
+  else if (!(await indexContainsId(path, journal.record.id))) await appendFile(indexPath(path), `${JSON.stringify(journal.record)}\n`, 'utf8')
   const recovered = { version: 2 as const, documentCount: Math.max(manifest.documentCount, journal.record.sequence) }
   await saveManifest(path, recovered)
   await unlink(journalPath(path))
@@ -236,6 +258,22 @@ async function indexContainsId(path: string, id: string): Promise<boolean> {
   let found = false
   await forEachIndex(path, (record) => { if (record.id === id) found = true })
   return found
+}
+
+/** 原子替换一条轻量索引记录，保持其他资料的 sequence 与顺序不变。 */
+async function replaceIndexRecord(path: string, replacement: LocalKnowledgeIndexRecord): Promise<void> {
+  const temporary = `${indexPath(path)}.${process.pid}.${randomUUID()}.tmp`
+  const handle = await open(temporary, 'w')
+  let replaced = false
+  try {
+    await forEachIndex(path, async (record) => {
+      const value = record.id === replacement.id ? replacement : record
+      if (record.id === replacement.id) replaced = true
+      await handle.write(`${JSON.stringify(value)}\n`)
+    })
+    if (!replaced) throw new Error('要更新的本地资料索引不存在')
+  } finally { await handle.close() }
+  await rename(temporary, indexPath(path))
 }
 
 /** journal 存在时只修复末尾半行；中间损坏不会被静默吞掉。 */
@@ -262,12 +300,18 @@ export async function addLocalDocument(path: string, title: string, content: str
   if (!cleanTitle || !cleanContent) throw new Error('资料标题和内容不能为空')
   return withStoreLock(path, async () => {
     const manifest = await ensureIndexedStore(path)
+    const now = new Date().toISOString()
     const document: LocalKnowledgeDocument = {
       id: `${Date.now()}-${randomUUID().slice(0, 8)}`,
       title: cleanTitle,
       source: source.trim() || '用户粘贴文本',
       content: cleanContent,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
+      summary: buildExtractiveSummary(cleanContent),
+      summarySource: 'extractive',
+      systemCategory: classifyLocalDocument(cleanTitle, cleanContent),
+      userCategory: null,
     }
     const record = toIndexRecord(document, manifest.documentCount + 1)
     const journal: LocalWriteJournal = { version: 1, document, record }
@@ -341,11 +385,114 @@ export async function listLocalDocuments(path: string, cursor: string | undefine
     page.reverse()
     const oldest = page.at(-1)
     return {
-      items: page.map(({ id, title, source, createdAt, contentLength }) => ({ id, title, source, createdAt, contentLength })),
+      items: page.map(({ id, title, source, createdAt, updatedAt, contentLength, summary, summarySource, systemCategory, userCategory }) => ({ id, title, source, createdAt, updatedAt, contentLength, summary, summarySource, systemCategory, userCategory })),
       ...(eligible > page.length && oldest ? { nextCursor: String(oldest.sequence) } : {}),
       hasMore: eligible > page.length,
       total: keyword ? total : manifest.documentCount,
     }
+  })
+}
+
+/** 分页读取摘要工作区元数据，并按系统分类或用户二次分类过滤。 */
+export async function listLocalSummaries(
+  path: string,
+  cursor: string | undefined,
+  limit: number,
+  query = '',
+  systemCategory = '',
+  userCategory: string | undefined = undefined,
+): Promise<LocalKnowledgeDocumentPage & { systemCategoryCounts: Record<string, number>; userCategoryCounts: Record<string, number>; userCategories: string[] }> {
+  return withStoreLock(path, async () => {
+    const manifest = await ensureIndexedStore(path)
+    const keyword = query.trim().toLowerCase()
+    const normalizedSystem = systemCategory.trim()
+    const boundary = cursor && /^\d+$/.test(cursor) ? Number(cursor) : Number.POSITIVE_INFINITY
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit) || 30, 100))
+    const page: LocalKnowledgeIndexRecord[] = []
+    const systemCategoryCounts: Record<string, number> = {}
+    const userCategoryCounts: Record<string, number> = {}
+    let total = 0
+    let eligible = 0
+    await forEachIndex(path, (record) => {
+      const category = record.systemCategory || '待分类'
+      const personal = record.userCategory || '未分类'
+      systemCategoryCounts[category] = (systemCategoryCounts[category] ?? 0) + 1
+      userCategoryCounts[personal] = (userCategoryCounts[personal] ?? 0) + 1
+      const matchesQuery = !keyword || `${record.title}\n${record.source}\n${record.summary ?? ''}`.toLowerCase().includes(keyword)
+      const matchesSystem = !normalizedSystem || category === normalizedSystem
+      const matchesUser = userCategory === undefined || (userCategory === '' ? !record.userCategory : record.userCategory === userCategory)
+      if (!matchesQuery || !matchesSystem || !matchesUser) return
+      total += 1
+      if (record.sequence >= boundary) return
+      eligible += 1
+      page.push(record)
+      if (page.length > safeLimit) page.shift()
+    })
+    page.reverse()
+    const oldest = page.at(-1)
+    const categories = await readUserCategories(path)
+    return {
+      items: page.map(({ id, title, source, createdAt, updatedAt, contentLength, summary, summarySource, systemCategory: category, userCategory: personal }) => ({ id, title, source, createdAt, updatedAt, contentLength, summary, summarySource, systemCategory: category, userCategory: personal })),
+      ...(eligible > page.length && oldest ? { nextCursor: String(oldest.sequence) } : {}),
+      hasMore: eligible > page.length,
+      total: keyword || normalizedSystem || userCategory !== undefined ? total : manifest.documentCount,
+      systemCategoryCounts,
+      userCategoryCounts,
+      userCategories: categories,
+    }
+  })
+}
+
+/** 创建用户二次分类；空分类也独立持久化，便于先建目录再整理资料。 */
+export async function createLocalUserCategory(path: string, name: string): Promise<string[]> {
+  const normalized = name.replace(/\s+/g, ' ').trim()
+  if (!normalized || normalized.length > 80) throw new Error('分类名称必须为 1 到 80 个字符')
+  return withStoreLock(path, async () => {
+    await ensureIndexedStore(path)
+    const current = await readUserCategories(path)
+    if (current.some((value) => value.toLowerCase() === normalized.toLowerCase())) throw new Error('已存在同名分类')
+    const categories = [...current, normalized]
+    await atomicWrite(categoriesPath(path), `${JSON.stringify({ version: 1, categories } satisfies LocalUserCategoryStore, null, 2)}\n`)
+    return categories
+  })
+}
+
+/** 更新本地摘要、摘要来源、系统初分类或用户二次分类。 */
+export async function updateLocalDocumentMetadata(
+  path: string,
+  id: string,
+  patch: { summary?: string; summarySource?: 'extractive' | 'model'; systemCategory?: string; userCategory?: string | null },
+): Promise<LocalKnowledgeDocument> {
+  return withStoreLock(path, async () => {
+    const manifest = await ensureIndexedStore(path)
+    const document = await readIndexedDocument(path, id)
+    const sequence = await findSequence(path, id)
+    if (sequence === undefined) throw new Error('资料不存在')
+    const summary = patch.summary === undefined ? document.summary : normalizeMarkdownSummary(patch.summary)
+    if (summary !== undefined && (!summary || summary.length > 5000)) throw new Error('摘要必须为 1 到 5000 个字符')
+    const systemCategory = patch.systemCategory === undefined ? document.systemCategory : patch.systemCategory.replace(/\s+/g, ' ').trim()
+    if (systemCategory !== undefined && (!systemCategory || systemCategory.length > 80)) throw new Error('系统分类必须为 1 到 80 个字符')
+    const userCategory = patch.userCategory === undefined ? document.userCategory : patch.userCategory?.replace(/\s+/g, ' ').trim() || null
+    if (userCategory && userCategory.length > 80) throw new Error('用户分类最多 80 个字符')
+    const updated: LocalKnowledgeDocument = {
+      ...document,
+      updatedAt: new Date().toISOString(),
+      ...(summary !== undefined ? { summary } : {}),
+      ...(patch.summarySource !== undefined ? { summarySource: patch.summarySource } : {}),
+      ...(systemCategory !== undefined ? { systemCategory } : {}),
+      ...(patch.userCategory !== undefined ? { userCategory } : {}),
+    }
+    if (userCategory) {
+      const categories = await readUserCategories(path)
+      if (!categories.includes(userCategory)) await atomicWrite(categoriesPath(path), `${JSON.stringify({ version: 1, categories: [...categories, userCategory] } satisfies LocalUserCategoryStore, null, 2)}\n`)
+    }
+    const record = toIndexRecord(updated, sequence)
+    await atomicWrite(journalPath(path), `${JSON.stringify({ version: 2, document: updated, record } satisfies LocalWriteJournal)}\n`)
+    await atomicWrite(resolveContentPath(path, record.contentFile), `${JSON.stringify(updated)}\n`)
+    await replaceIndexRecord(path, record)
+    await saveManifest(path, manifest)
+    await unlink(journalPath(path))
+    return updated
   })
 }
 
@@ -365,6 +512,58 @@ async function readIndexedDocument(path: string, id: string): Promise<LocalKnowl
   const document = JSON.parse((await readFile(target, 'utf8')).replace(/^\uFEFF/, '')) as LocalKnowledgeDocument
   if (document.id !== id) throw new Error('本地知识库原文 ID 校验失败')
   return document
+}
+
+async function findSequence(path: string, id: string): Promise<number | undefined> {
+  let sequence: number | undefined
+  await forEachIndex(path, (record) => { if (record.id === id) sequence = record.sequence })
+  return sequence
+}
+
+async function readUserCategories(path: string): Promise<string[]> {
+  try {
+    const value = JSON.parse((await readFile(categoriesPath(path), 'utf8')).replace(/^\uFEFF/, '')) as Partial<LocalUserCategoryStore>
+    return value.version === 1 && Array.isArray(value.categories)
+      ? [...new Set(value.categories.map((item) => String(item).replace(/\s+/g, ' ').trim()).filter(Boolean))]
+      : []
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw new Error('本地知识库分类文件无法读取')
+  }
+}
+
+function buildExtractiveSummary(content: string): string {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+  const segments = normalized.split(/(?<=[。！？!?\.])\s+|\n+/).map((value) => value.replace(/^#{1,6}\s+|^[-*+]\s+/, '').trim()).filter((value) => Boolean(value) && !/^\d+[.)、]?$/u.test(value))
+  const selected: string[] = []
+  let length = 0
+  for (const segment of segments) {
+    if (selected.length >= 5 || length + segment.length > 700) break
+    selected.push(segment); length += segment.length
+  }
+  const bullets = (selected.length ? selected : [normalized.slice(0, 600)]).map((value) => `- ${value}`)
+  return `## 知识点摘要\n\n${bullets.join('\n')}`
+}
+
+/** 复用当前项目的 Markdown 摘要规范：保留标题、列表、表格和代码块结构。 */
+export function normalizeMarkdownSummary(value: string): string {
+  const lines = String(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n').map((line) => line.replace(/[ \t]+$/g, ''))
+  const text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  if (!text) return ''
+  const markdown = /^#{1,6}\s|^[-*+]\s|^\d+[.)]\s|^>\s|^```|^\|/m.test(text)
+  return markdown ? text.slice(0, 5000) : `## 知识点摘要\n\n${text.slice(0, 4950)}`
+}
+
+function classifyLocalDocument(title: string, content: string): string {
+  const corpus = `${title}\n${content}`.toLowerCase()
+  const categories: Array<[string, RegExp]> = [
+    ['面试复习', /面经|面试题|八股|interview question/],
+    ['课程笔记', /课程|教程|讲义|课堂|教学|course|tutorial|lesson/],
+    ['技术原理', /原理|机制|算法|架构|分布式|数据库|缓存|向量|rag|embedding|algorithm|architecture|database|distributed/],
+    ['语言学习', /英语|日语|韩语|语法|词汇|口语|english|japanese|grammar|vocabulary/],
+    ['考试复习', /考试|考纲|真题|错题|quiz|exam|test preparation/],
+  ]
+  return categories.find(([, pattern]) => pattern.test(corpus))?.[0] ?? '学习资料'
 }
 
 function resolveContentPath(path: string, fileName: string): string {

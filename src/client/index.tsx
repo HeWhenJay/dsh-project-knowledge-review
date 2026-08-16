@@ -3,7 +3,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { mountSummarySidebar, mountSummaryView, SummaryController } from './summary-mount.js'
 
 import { KNOWLEDGE_ENDPOINT, SETTINGS_ENDPOINT, type KnowledgeSettingsView, type SettingsEnvelope } from '../client-settings.js'
 
@@ -24,14 +25,11 @@ interface CredentialState {
 }
 
 interface KnowledgeOverviewView {
-  mode: 'local' | 'project-rag'
+  mode: 'local'
   documentCount?: number
-  materialCount?: number
-  chunkCount?: number
   storePath?: string
   scope?: string
-  sharedWithCurrentProject?: boolean
-  partition?: string
+  sharedWithCurrentProject?: false
 }
 
 interface KnowledgeMaterialView {
@@ -57,6 +55,11 @@ interface KnowledgePageView {
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => installKnowledgeReviewVisuals(), 'project-knowledge-review: visuals')
+  ctx.effect(() => {
+    const controller = new SummaryController()
+    const disposers = [mountSummarySidebar(controller), mountSummaryView(controller)]
+    return () => disposers.reverse().forEach((dispose) => dispose())
+  }, 'project-knowledge-review: summary workspace')
   const connection = ctx.get('connection') as ConnectionHandle
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -94,6 +97,15 @@ function installKnowledgeReviewVisuals(): () => void {
     .dsh-project-knowledge-review-select-option:hover, .dsh-project-knowledge-review-select-option[aria-selected="true"] { background: var(--dsw-alias-background-l2); }
     .dsh-project-knowledge-review-select-option:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
     .dsh-project-knowledge-review-select-check { width: 15px; height: 15px; color: var(--dsw-alias-brand-primary); }
+    [data-pane='conversation'], [class*='centerCol'] { position: relative; }
+    [data-dsh-knowledge-summary-view] { position: absolute; inset: 0; z-index: 60; display: none; overflow: hidden; background: var(--dsw-alias-bg-base); }
+    html[data-dsh-knowledge-summary-active] [data-dsh-knowledge-summary-view] { display: block; }
+    .dsh-knowledge-summary-entry{width:100%;height:32px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);display:flex;align-items:center;gap:8px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}.dsh-knowledge-summary-entry:hover{background:var(--dsw-specific-sidebar-nav-item-hover);color:var(--dsw-alias-label-primary)}.dsh-knowledge-summary-entry[data-active]{background:var(--dsw-specific-sidebar-nav-item-active);color:var(--dsw-alias-label-primary);font-weight:600}.dsh-knowledge-summary-entry-icon{width:16px;height:16px;display:inline-flex;flex:none}.dsh-knowledge-summary-entry-icon svg{width:16px;height:16px}[data-dsh-frame][data-sidebar-collapsed] .dsh-knowledge-summary-entry{justify-content:center;padding:0}[data-dsh-frame][data-sidebar-collapsed] .dsh-knowledge-summary-entry-label{display:none}
+    .dsh-knowledge-workspace{--knowledge-nav-width:clamp(180px,20%,220px);--knowledge-inspector-width:clamp(190px,20%,230px);height:100%;min-height:0;display:flex;flex-direction:column;container:knowledge-workspace / inline-size;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-elevated-fill,var(--dsw-alias-bg-base));font-family:var(--dsw-font-family);box-sizing:border-box}.dsh-knowledge-workspace-bar{height:58px;flex:0 0 58px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-base) 92%,var(--dsw-alias-brand-primary) 8%)}.dsh-knowledge-workspace-brand,.dsh-knowledge-workspace-actions{display:flex;align-items:center;gap:10px}.dsh-knowledge-workspace-brand h2{margin:0;font-size:15px;line-height:1.2}.dsh-knowledge-workspace-brand p{margin:3px 0 0;color:var(--dsw-alias-label-tertiary);font-size:10px}.dsh-knowledge-workspace-mark{width:30px;height:30px;display:inline-grid;place-items:center;border-radius:8px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font:800 14px/1 ui-monospace,SFMono-Regular,Consolas,monospace;box-shadow:0 5px 16px color-mix(in srgb,var(--dsw-alias-brand-primary) 22%,transparent)}.dsh-knowledge-navigation-toggle{display:none;width:32px;height:32px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:600 17px/1 var(--dsw-font-family);cursor:pointer}.dsh-knowledge-summary-close{width:32px;height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:22px;line-height:1;cursor:pointer}.dsh-knowledge-summary-close:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}.dsh-knowledge-summary-error{position:absolute;z-index:5;top:66px;left:calc(var(--knowledge-nav-width) + 12px);right:calc(var(--knowledge-inspector-width) + 12px);padding:9px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-error,#d24b4b) 32%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-error,#d24b4b) 10%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-error,#c44646);font-size:12px}.dsh-knowledge-summary-error small{display:block;margin-top:3px}
+    .dsh-knowledge-workspace-body{position:relative;min-height:0;flex:1;display:grid;grid-template-columns:var(--knowledge-nav-width) minmax(0,1fr) var(--knowledge-inspector-width);overflow:hidden}.dsh-knowledge-navigation-backdrop{display:none}.dsh-knowledge-workspace:not([data-inspector-open]) .dsh-knowledge-workspace-body{grid-template-columns:var(--knowledge-nav-width) minmax(0,1fr) 0}.dsh-knowledge-library-nav{min-width:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dsh-knowledge-library-search{padding:12px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-library-scroll{min-height:0;flex:1;overflow:auto;padding:8px}.dsh-knowledge-library-scroll section{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}.dsh-knowledge-library-scroll section h3{margin:7px 8px 5px;color:var(--dsw-alias-label-tertiary);font-size:10px;text-transform:uppercase;letter-spacing:.08em}.dsh-knowledge-library-scroll section>button:not(.dsh-knowledge-document-row){min-height:30px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 8px;display:flex;align-items:center;justify-content:space-between;font:inherit;font-size:12px;text-align:left;cursor:pointer}.dsh-knowledge-library-scroll section>button:hover{background:var(--dsw-specific-sidebar-nav-item-hover);color:var(--dsw-alias-label-primary)}.dsh-knowledge-library-scroll section>button[data-active]{background:var(--dsw-specific-sidebar-nav-item-active);color:var(--dsw-alias-label-primary);font-weight:650}.dsh-knowledge-library-scroll button b{font-size:10px;color:var(--dsw-alias-label-tertiary)}.dsh-knowledge-summary-create{display:flex;gap:5px;padding:4px 2px 12px}.dsh-knowledge-document-section{padding-top:5px;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-document-count{margin:0 8px 5px;color:var(--dsw-alias-label-tertiary);font-size:10px}.dsh-knowledge-document-row{width:100%;display:grid!important;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:8px;padding:7px 8px!important;border:1px solid transparent!important;border-radius:7px!important;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer}.dsh-knowledge-document-row[data-active]{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 28%,transparent)!important;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent)!important;color:var(--dsw-alias-label-primary)}.dsh-knowledge-document-kind{width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary);font:800 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace}.dsh-knowledge-document-row>span:last-child{min-width:0}.dsh-knowledge-document-row strong,.dsh-knowledge-document-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-knowledge-document-row strong{font-size:12px;line-height:1.4}.dsh-knowledge-document-row small{margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:9px}.dsh-knowledge-nav-pagination{display:flex;gap:6px;justify-content:flex-end;padding:9px 10px;border-top:1px solid var(--dsw-alias-border-l2)}
+    .dsh-knowledge-reader{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.dsh-knowledge-reader-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:20px clamp(18px,3cqw,32px) 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-reader-head>div:first-child{min-width:0}.dsh-knowledge-reader-head h1{margin:8px 0 4px;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:22px;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}.dsh-knowledge-reader-head p{margin:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.dsh-knowledge-reader-badges{display:flex;gap:6px}.dsh-knowledge-reader-badges span{padding:3px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:9px}.dsh-knowledge-reader-tabs,.dsh-knowledge-render-toggle{display:inline-flex;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}.dsh-knowledge-reader-tabs button,.dsh-knowledge-render-toggle button{min-height:27px;padding:0 10px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;cursor:pointer}.dsh-knowledge-reader-tabs button[aria-selected=true],.dsh-knowledge-render-toggle button[aria-pressed=true]{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);box-shadow:0 1px 3px rgba(0,0,0,.08)}.dsh-knowledge-reader-toolbar{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px clamp(18px,3cqw,32px);border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px}.dsh-knowledge-reader-canvas{min-height:0;flex:1;overflow:auto;padding:30px clamp(18px,2.5cqw,34px) 70px}.dsh-knowledge-reader-canvas>.dsh-knowledge-markdown,.dsh-knowledge-markdown-source{width:min(820px,100%);margin:0 auto}.dsh-knowledge-reader-welcome{height:100%;display:grid;place-content:center;justify-items:center;color:var(--dsw-alias-label-tertiary);text-align:center}.dsh-knowledge-reader-welcome .dsh-knowledge-workspace-mark{width:42px;height:42px;margin-bottom:10px}.dsh-knowledge-reader-welcome h2{margin:8px 0 4px;color:var(--dsw-alias-label-primary);font-size:18px}.dsh-knowledge-reader-welcome p{margin:0;font-size:12px}.dsh-knowledge-markdown{color:var(--dsw-alias-label-secondary);font-size:14px;line-height:1.8;overflow-wrap:anywhere}.dsh-knowledge-markdown>:first-child{margin-top:0}.dsh-knowledge-markdown>:last-child{margin-bottom:0}.dsh-knowledge-markdown h2,.dsh-knowledge-markdown h3,.dsh-knowledge-markdown h4{margin:1.5em 0 .65em;color:var(--dsw-alias-label-primary);line-height:1.35;letter-spacing:-.01em}.dsh-knowledge-markdown h2{font-size:25px}.dsh-knowledge-markdown h3{padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:19px}.dsh-knowledge-markdown h4{font-size:15px}.dsh-knowledge-markdown p{margin:12px 0}.dsh-knowledge-markdown ul,.dsh-knowledge-markdown ol{margin:12px 0;padding-left:24px}.dsh-knowledge-markdown li{margin:7px 0}.dsh-knowledge-markdown strong{color:var(--dsw-alias-label-primary)}.dsh-knowledge-markdown code,.dsh-knowledge-markdown pre,.dsh-knowledge-markdown-source{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.dsh-knowledge-markdown code{padding:2px 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:.9em}.dsh-knowledge-markdown pre,.dsh-knowledge-markdown-source{overflow:auto;padding:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-button-elevated-fill,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-word}.dsh-knowledge-markdown pre code{padding:0;border:0;background:transparent}.dsh-knowledge-markdown blockquote{margin:16px 0;padding:10px 14px;border-left:3px solid var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 6%,transparent);color:var(--dsw-alias-label-secondary)}.dsh-knowledge-markdown a{color:var(--dsw-alias-brand-primary);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 36%,transparent)}.dsh-knowledge-markdown hr{margin:24px 0;border:0;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-markdown-table{max-width:100%;overflow:auto;margin:16px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}.dsh-knowledge-markdown-table table{width:100%;min-width:520px;border-collapse:collapse;font-size:12px}.dsh-knowledge-markdown-table th,.dsh-knowledge-markdown-table td{padding:9px 11px;border-right:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-markdown-table th{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+    .dsh-knowledge-inspector{min-width:0;min-height:0;overflow:auto;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);transition:opacity .14s ease}.dsh-knowledge-workspace:not([data-inspector-open]) .dsh-knowledge-inspector{overflow:hidden;opacity:0;pointer-events:none}.dsh-knowledge-inspector-title{display:flex;justify-content:space-between;align-items:center;padding:16px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-knowledge-inspector-title span{font-size:12px;font-weight:700}.dsh-knowledge-inspector-title small{color:var(--dsw-alias-label-tertiary);font-size:9px}.dsh-knowledge-property{padding:11px 16px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l2) 65%,transparent)}.dsh-knowledge-property span,.dsh-knowledge-inspector-category>span{display:block;margin-bottom:5px;color:var(--dsw-alias-label-tertiary);font-size:9px;text-transform:uppercase;letter-spacing:.06em}.dsh-knowledge-property strong{display:block;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:550;text-overflow:ellipsis;white-space:nowrap}.dsh-knowledge-property strong.is-mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9px}.dsh-knowledge-inspector-category{display:block;padding:13px 16px}.dsh-knowledge-inspector-category select{width:100%;height:33px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px}.dsh-knowledge-inspector-note{margin:4px 14px 16px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1.55}.dsh-knowledge-summary-empty{padding:24px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px}
+    @container knowledge-workspace (max-width:680px){.dsh-knowledge-workspace{--knowledge-nav-width:0px;--knowledge-inspector-width:0px}.dsh-knowledge-workspace-body,.dsh-knowledge-workspace:not([data-inspector-open]) .dsh-knowledge-workspace-body{grid-template-columns:minmax(0,1fr) 0}.dsh-knowledge-navigation-toggle{display:inline-grid;place-items:center}.dsh-knowledge-library-nav{position:absolute;z-index:8;inset:0 auto 0 0;width:min(82cqw,280px);border-right:1px solid var(--dsw-alias-border-l1);box-shadow:10px 0 26px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .16s ease}.dsh-knowledge-workspace[data-navigation-open] .dsh-knowledge-library-nav{transform:translateX(0)}.dsh-knowledge-workspace[data-navigation-open] .dsh-knowledge-navigation-backdrop{position:absolute;z-index:7;inset:0 0 0 min(82cqw,280px);display:block;border:0;background:rgba(0,0,0,.24);cursor:pointer}.dsh-knowledge-inspector{display:none}.dsh-knowledge-workspace-actions>button:first-child{display:none}.dsh-knowledge-reader-head{align-items:flex-start;flex-direction:column;padding:16px 18px 12px}.dsh-knowledge-reader-head h1{display:-webkit-box;overflow:hidden;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:2}.dsh-knowledge-reader-toolbar{align-items:flex-start;flex-wrap:wrap;padding:7px 18px}.dsh-knowledge-reader-toolbar>span{flex-basis:100%}.dsh-knowledge-reader-canvas{padding:24px 18px 56px}.dsh-knowledge-summary-error{left:12px;right:12px}.dsh-knowledge-workspace-brand{min-width:0}.dsh-knowledge-workspace-brand>div{min-width:0}.dsh-knowledge-workspace-brand p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
   `
   document.head.appendChild(style)
   const markNavigation = (): void => {
@@ -131,7 +143,6 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
   const [revision, setRevision] = useState<number>()
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [ragKey, setRagKey] = useState('')
   const [ocrKey, setOcrKey] = useState('')
   const [asrKey, setAsrKey] = useState('')
   const [credentials, setCredentials] = useState<Record<string, CredentialState>>({})
@@ -151,7 +162,7 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
 
   const loadCredentials = async (value: KnowledgeSettingsView): Promise<void> => {
     if (!api) return
-    const refs = [...new Set([value.ragApiKeyEnv, value.ocrApiKeyEnv, value.asrApiKeyEnv].filter(Boolean))]
+    const refs = [...new Set([value.ocrApiKeyEnv, value.asrApiKeyEnv].filter(Boolean))]
     const response = await api.credentials.describe({ refs })
     if (!response.result.ok) throw new Error(response.result.error.message)
     setCredentials(response.result.value.credentials)
@@ -186,16 +197,16 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
     setSettings((current) => current ? { ...current, [field]: value } : current)
   }
 
-  const saveCredential = async (kind: 'rag' | 'ocr' | 'asr'): Promise<boolean> => {
+  const saveCredential = async (kind: 'ocr' | 'asr'): Promise<boolean> => {
     if (!api || !settings) return false
-    const ref = kind === 'rag' ? settings.ragApiKeyEnv : kind === 'ocr' ? settings.ocrApiKeyEnv : settings.asrApiKeyEnv
-    const value = (kind === 'rag' ? ragKey : kind === 'ocr' ? ocrKey : asrKey).trim()
+    const ref = kind === 'ocr' ? settings.ocrApiKeyEnv : settings.asrApiKeyEnv
+    const value = (kind === 'ocr' ? ocrKey : asrKey).trim()
     if (!value) { setNotice('请输入 API Key；已保存的 Key 不会回显。'); return false }
     setBusy(true)
     try {
       const response = await api.credentials.set({ ref, value })
       if (!response.result.ok) throw new Error(response.result.error.message)
-      kind === 'rag' ? setRagKey('') : kind === 'ocr' ? setOcrKey('') : setAsrKey('')
+      kind === 'ocr' ? setOcrKey('') : setAsrKey('')
       await loadCredentials(settings)
       setNotice(`${kind.toUpperCase()} API Key 已安全保存到 DSH 凭据库。`)
       return true
@@ -207,9 +218,9 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
     }
   }
 
-  const clearCredential = async (kind: 'rag' | 'ocr' | 'asr'): Promise<void> => {
+  const clearCredential = async (kind: 'ocr' | 'asr'): Promise<void> => {
     if (!api || !settings) return
-    const ref = kind === 'rag' ? settings.ragApiKeyEnv : kind === 'ocr' ? settings.ocrApiKeyEnv : settings.asrApiKeyEnv
+    const ref = kind === 'ocr' ? settings.ocrApiKeyEnv : settings.asrApiKeyEnv
     setBusy(true)
     try {
       const response = await api.credentials.unset({ ref })
@@ -228,16 +239,13 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
   return <section style={styles.section}>
     <div>
       <h2 style={styles.title}>知识复习</h2>
-      <p style={styles.intro}>控制严格证据问答、本地知识库，以及可选的项目 RAG、OCR 和 ASR。API Key 只写入 DSH 凭据库，不会回显。</p>
+      <p style={styles.intro}>管理插件自己的本地知识库、知识点摘要和分类，以及可选的 OCR、ASR。公开插件不会连接或安装任何外部项目。</p>
     </div>
 
     {notice && <div style={styles.notice}>{notice}</div>}
 
     <Card title="基础服务" description="关闭后系统提示词保持静默，所有知识复习工具都会拒绝执行。">
       <Toggle label="开启知识复习服务" checked={settings.enabled} disabled={busy} onChange={(value) => void saveField('enabled', value)} />
-      <Field label="运行模式" help="local 无需数据库和向量模型；project-rag 连接完整项目 RAG。">
-        <ModeSelect value={settings.mode} disabled={busy} onChange={(value) => void saveField('mode', value)} />
-      </Field>
       <Field label="回答策略" help="严格知识库只允许 evidence 结论；参考知识库允许模型补充，但会明确标注来源边界。">
         <PolicySelect value={settings.answerPolicy} disabled={busy} onChange={(value) => void saveField('answerPolicy', value)} />
       </Field>
@@ -245,12 +253,9 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
       <TextField label="本地资料库路径" value={settings.localStorePath} disabled={busy} onChange={(value) => updateDraft('localStorePath', value)} onSave={() => void saveField('localStorePath', settings.localStorePath)} />
     </Card>
 
-    <BeginnerSetup mode={settings.mode} ragKey={ragKey} credential={credentials[settings.ragApiKeyEnv]} disabled={busy} onKeyDraft={setRagKey} onSaveKey={() => saveCredential('rag')} onClearKey={() => void clearCredential('rag')} />
+    <KnowledgeBrowser />
 
-    <KnowledgeBrowser mode={settings.mode} />
-
-    <Card title="项目 RAG" description="仅 project-rag 模式需要。Python 服务负责向量检索、PDF/Office、视频网页、OCR/ASR 和耐久任务。">
-      <TextField label="RAG 服务 URL" value={settings.ragBaseUrl} disabled={busy} onChange={(value) => updateDraft('ragBaseUrl', value)} onSave={() => void saveField('ragBaseUrl', settings.ragBaseUrl)} />
+    <Card title="本地服务设置" description="请求超时仅用于可选 OCR 与 ASR；本地文本入库和检索不访问网络。">
       <NumberField label="请求超时（毫秒）" value={settings.requestTimeoutMs} disabled={busy} onChange={(value) => updateDraft('requestTimeoutMs', value)} onSave={() => void saveField('requestTimeoutMs', settings.requestTimeoutMs)} />
     </Card>
 
@@ -278,35 +283,6 @@ function Field(props: { label: string; help?: string; children: ReactNode }): Re
   return <label style={styles.field}><span style={styles.label}>{props.label}</span>{props.children}{props.help && <span style={styles.help}>{props.help}</span>}</label>
 }
 
-function ModeSelect(props: { value: KnowledgeSettingsView['mode']; disabled: boolean; onChange: (value: KnowledgeSettingsView['mode']) => void }): ReactNode {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const options: Array<{ value: KnowledgeSettingsView['mode']; label: string; description: string }> = [
-    { value: 'local', label: '本地零配置模式', description: '关键词检索，无需数据库或模型 Key' },
-    { value: 'project-rag', label: '项目 RAG 增强模式', description: '连接 Python RAG，支持语义与多模态资料' },
-  ]
-  const selected = options.find((option) => option.value === props.value) ?? options[0]
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent): void => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
-  return <div ref={rootRef} className="dsh-project-knowledge-review-select">
-    <button type="button" className="dsh-project-knowledge-review-select-button" aria-haspopup="listbox" aria-expanded={open} disabled={props.disabled} onClick={() => setOpen((value) => !value)}>
-      <span>{selected.label}</span><svg className="dsh-project-knowledge-review-select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-    </button>
-    {open && <ul className="dsh-project-knowledge-review-select-menu" role="listbox" aria-label="运行模式">
-      {options.map((option) => <li key={option.value} role="option" aria-selected={option.value === props.value}>
-        <button type="button" className="dsh-project-knowledge-review-select-option" onClick={() => { props.onChange(option.value); setOpen(false) }}>
-          <span><strong>{option.label}</strong><small style={styles.modeDescription}>{option.description}</small></span>
-          {option.value === props.value && <svg className="dsh-project-knowledge-review-select-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>}
-        </button>
-      </li>)}
-    </ul>}
-  </div>
-}
-
 function PolicySelect(props: { value: KnowledgeSettingsView['answerPolicy']; disabled: boolean; onChange: (value: KnowledgeSettingsView['answerPolicy']) => void }): ReactNode {
   return <div style={styles.policyGrid}>
     <button type="button" style={{ ...styles.policyOption, ...(props.value === 'strict' ? styles.policyOptionActive : {}) }} disabled={props.disabled} onClick={() => props.onChange('strict')}>
@@ -318,73 +294,7 @@ function PolicySelect(props: { value: KnowledgeSettingsView['answerPolicy']; dis
   </div>
 }
 
-interface SetupStatusView {
-  ok?: boolean
-  phase: 'idle' | 'checking' | 'cloning' | 'database' | 'environment' | 'starting' | 'ready' | 'failed'
-  running: boolean
-  message: string
-  installRoot: string
-  serviceUrl: string
-  prerequisites: { docker: boolean; git: boolean; conda: boolean }
-  error?: string
-}
-
-function BeginnerSetup(props: { mode: KnowledgeSettingsView['mode']; ragKey: string; credential?: CredentialState; disabled: boolean; onKeyDraft: (value: string) => void; onSaveKey: () => Promise<boolean>; onClearKey: () => void }): ReactNode {
-  const [open, setOpen] = useState(false)
-  const [status, setStatus] = useState<SetupStatusView>()
-  const [installRoot, setInstallRoot] = useState('')
-  const [starting, setStarting] = useState(false)
-  const [detecting, setDetecting] = useState(false)
-  const load = async (): Promise<void> => {
-    setDetecting(true)
-    try {
-      const response = await fetch('/api/project-knowledge-review/setup/status', { cache: 'no-store' })
-      const payload = await response.json() as SetupStatusView
-      setStatus(payload); if (!installRoot && payload.installRoot) setInstallRoot(payload.installRoot)
-    } catch { /* local 模式不因增强服务状态失败而报错。 */ }
-    finally { setDetecting(false) }
-  }
-  useEffect(() => { if (open) void load() }, [open])
-  useEffect(() => {
-    if (!open || !status?.running) return
-    const timer = setInterval(() => void load(), 1500)
-    return () => clearInterval(timer)
-  }, [open, status?.running])
-  const start = async (): Promise<void> => {
-    if (!confirm('将自动下载项目、创建本机 pgvector 数据库并准备独立 Python 环境。不会删除现有数据；失败时本地开箱即用模式仍可使用。是否继续？')) return
-    setStarting(true)
-    try {
-      if (props.ragKey.trim() && !(await props.onSaveKey())) return
-      const response = await fetch('/api/project-knowledge-review/setup/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ installRoot }) })
-      const payload = await response.json() as SetupStatusView
-      if (!response.ok || payload.phase === 'failed') throw new Error(payload.error || payload.message || '一键准备启动失败')
-      setStatus(payload)
-    } catch (error) {
-      setStatus((current) => current ? { ...current, phase: 'failed', running: false, message: '完整多模态准备未启动；本地模式仍可使用。', error: messageOf(error) } : current)
-    } finally { setStarting(false) }
-  }
-  const ready = status?.phase === 'ready'
-  return <div style={styles.setupCard}>
-    <button type="button" style={styles.browserHeader} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-      <span><strong>新手一键准备</strong><small style={styles.browserSubtitle}>纯文本知识复习已经可用；完整多模态按需准备</small></span>
-      <span style={styles.browserHeaderMeta}>{ready ? '完整功能已就绪' : props.mode === 'local' ? '本地功能已就绪' : status?.message || ''}<svg style={{ ...styles.browserChevron, transform: open ? 'rotate(180deg)' : undefined }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg></span>
-    </button>
-    {open && <div style={styles.setupBody}>
-      <div style={styles.beginnerNotice}><strong>现在就能复习纯文本资料</strong><span>只有当你要解析 PDF、Office、扫描件或视频时，才需要填写下方 DashScope Key 并准备完整多模态功能。</span></div>
-      <Field label="DashScope API Key（仅完整多模态需要）" help="需要使用你自己的阿里云百炼 Key，插件无法代为申请；保存后只写入 DSH 凭据库，不进入项目文件或日志。">
-        <div style={styles.credentialStatus}><StateDot state={props.credential?.configured ? 'done' : 'warning'} /><span>{props.credential?.configured ? '已配置，可以开始准备完整功能' : '尚未填写；纯文本知识复习不受影响'}</span></div>
-        <div style={styles.keyRow}><Input type="password" autoComplete="new-password" placeholder="输入 DashScope API Key" value={props.ragKey} onChange={(event) => props.onKeyDraft(event.target.value)} /><Button size="sm" variant="primary" disabled={!props.ragKey.trim() || props.disabled} onClick={props.onSaveKey}>安全保存</Button>{props.credential?.configured && <Button size="sm" variant="outline" onClick={props.onClearKey}>删除</Button>}</div>
-      </Field>
-      <details style={styles.advancedDetails}><summary style={styles.advancedSummary}>高级选项：更改安装目录</summary><div style={styles.advancedBody}><Input value={installRoot} title={installRoot} onChange={(event) => setInstallRoot(event.target.value)} /><small style={styles.help}>默认目录安全且可直接使用，普通用户无需修改。</small></div></details>
-      {detecting && !status && <div style={styles.setupStatus}><strong>正在只读检测本机环境…</strong><span>不会下载、安装或修改系统。</span></div>}
-      {status && <div style={styles.setupStatus}><strong>{status.message}</strong><span>Docker {status.prerequisites.docker ? '✓' : '—'} · Git {status.prerequisites.git ? '✓' : '—'} · Conda {status.prerequisites.conda ? '✓' : '—'}</span>{status.error && <span style={styles.setupError}>{status.error}</span>}</div>}
-      <div style={styles.setupActions}><Button variant="primary" disabled={starting || status?.running || ready || (!props.credential?.configured && !props.ragKey.trim())} onClick={() => void start()}>{status?.running ? '正在自动准备…' : ready ? '完整多模态已就绪' : !props.credential?.configured && !props.ragKey.trim() ? '填写 Key 后即可一键准备' : '一键准备完整多模态'}</Button><Button variant="outline" disabled={detecting} onClick={() => void load()}>{detecting ? '正在检测…' : '重新检测'}</Button></div>
-      <small style={styles.help}>插件不会自动安装 Docker Desktop、WSL2 或绕过企业网络限制。缺少系统前提时会明确提示，并保持本地模式正常可用。</small>
-    </div>}
-  </div>
-}
-
-function KnowledgeBrowser({ mode }: { mode: KnowledgeSettingsView['mode'] }): ReactNode {
+function KnowledgeBrowser(): ReactNode {
   const [open, setOpen] = useState(false)
   const [overview, setOverview] = useState<KnowledgeOverviewView>()
   const [items, setItems] = useState<KnowledgeMaterialView[]>([])
@@ -417,7 +327,7 @@ function KnowledgeBrowser({ mode }: { mode: KnowledgeSettingsView['mode'] }): Re
       setOverview(overviewValue); setItems(page.items ?? []); setNextCursor(page.nextCursor); setHasMore(page.hasMore); setTotal(page.total)
     }).catch((value) => { if (value.name !== 'AbortError') setError(messageOf(value)) }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [open, mode, cursor, query])
+  }, [open, cursor, query])
 
   const showContent = async (item: KnowledgeMaterialView): Promise<void> => {
     const id = String(item.id)
@@ -434,14 +344,14 @@ function KnowledgeBrowser({ mode }: { mode: KnowledgeSettingsView['mode'] }): Re
   return <div style={styles.browserCard}>
     <button type="button" style={styles.browserHeader} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <span><strong>知识库内容</strong><small style={styles.browserSubtitle}>分页查看标题、来源与原始内容</small></span>
-      <span style={styles.browserHeaderMeta}>{overview ? `${overview.documentCount ?? overview.materialCount ?? total} 条` : ''}<svg style={{ ...styles.browserChevron, transform: open ? 'rotate(180deg)' : undefined }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></span>
+      <span style={styles.browserHeaderMeta}>{overview ? `${overview.documentCount ?? total} 条` : ''}<svg style={{ ...styles.browserChevron, transform: open ? 'rotate(180deg)' : undefined }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></span>
     </button>
     {open && <div style={styles.browserBody}>
       {overview && <div style={styles.overviewGrid}>
-        <span><small>当前模式</small><strong>{overview.mode === 'local' ? '本地知识库' : '项目 RAG'}</strong></span>
-        <span><small>资料数量</small><strong>{overview.documentCount ?? overview.materialCount ?? total}</strong></span>
-        <span><small>作用域</small><strong>{overview.scope === 'dsh-user-global' ? 'DSH 用户级全局' : '插件固定分区'}</strong></span>
-        <span><small>与当前项目共用</small><strong>{overview.sharedWithCurrentProject ? '是' : '否'}</strong></span>
+        <span><small>存储模式</small><strong>插件本地知识库</strong></span>
+        <span><small>资料数量</small><strong>{overview.documentCount ?? total}</strong></span>
+        <span><small>作用域</small><strong>DSH 用户级本地</strong></span>
+        <span><small>外部项目依赖</small><strong>无</strong></span>
       </div>}
       {overview?.storePath && <div style={styles.storePath}>存储位置：<code>{overview.storePath}</code></div>}
       <form style={styles.browserSearch} onSubmit={(event) => { event.preventDefault(); setCursor(undefined); setCursorStack([]); setQuery(queryDraft.trim()) }}>
@@ -503,22 +413,11 @@ const styles: Record<string, CSSProperties> = {
   cardTitle: { margin: 0, fontSize: 16 }, stack: { display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 }, label: { fontSize: 13, fontWeight: 600 }, help: { margin: '5px 0 0', color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, lineHeight: 1.5 },
   row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }, toggle: { display: 'flex', alignItems: 'center', gap: 9, fontSize: 14 },
-  modeDescription: { display: 'block', marginTop: 3, color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, lineHeight: 1.35 },
   policyGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 },
   policyOption: { display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 11px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 9, background: 'transparent', color: 'var(--dsw-alias-label-primary)', textAlign: 'left', cursor: 'pointer' },
   policyOptionActive: { borderColor: 'var(--dsw-alias-brand-primary)', background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent)', boxShadow: '0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent)' },
   policyDescription: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, lineHeight: 1.4 },
   browserCard: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, background: 'var(--dsw-alias-background-l1)', overflow: 'hidden' },
-  setupCard: { border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, var(--dsw-alias-border-l2))', borderRadius: 12, background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, var(--dsw-alias-background-l1)), var(--dsw-alias-background-l1))', overflow: 'hidden' },
-  setupBody: { display: 'flex', flexDirection: 'column', gap: 14, padding: '0 16px 16px', borderTop: '1px solid var(--dsw-alias-border-l2)' },
-  beginnerNotice: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 14, padding: '11px 12px', borderRadius: 9, background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent)', color: 'var(--dsw-alias-label-primary)', fontSize: 12, lineHeight: 1.5 },
-  setupStatus: { display: 'flex', flexDirection: 'column', gap: 5, padding: '10px 11px', borderRadius: 9, background: 'var(--dsw-alias-background-l2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 12 },
-  setupError: { color: '#b13b3b', lineHeight: 1.5 },
-  setupActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  keyRow: { display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) auto auto', gap: 8, alignItems: 'center' },
-  advancedDetails: { borderRadius: 8, background: 'var(--dsw-alias-background-l2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 12 },
-  advancedSummary: { padding: '9px 11px', cursor: 'pointer', color: 'var(--dsw-alias-label-secondary)' },
-  advancedBody: { display: 'flex', flexDirection: 'column', gap: 5, padding: '0 11px 11px' },
   browserHeader: { width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px', border: 0, background: 'transparent', color: 'var(--dsw-alias-label-primary)', textAlign: 'left', cursor: 'pointer', font: 'inherit' },
   browserSubtitle: { display: 'block', marginTop: 4, color: 'var(--dsw-alias-label-tertiary)', fontSize: 11 },
   browserHeaderMeta: { display: 'flex', alignItems: 'center', gap: 8, color: 'var(--dsw-alias-label-tertiary)', fontSize: 12 },

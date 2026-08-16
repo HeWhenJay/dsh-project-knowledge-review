@@ -3,12 +3,9 @@ export const KNOWLEDGE_ENDPOINT = '/api/project-knowledge-review/knowledge'
 
 export interface KnowledgeSettingsView {
   enabled: boolean
-  mode: 'local' | 'project-rag'
   answerPolicy: 'strict' | 'reference'
   localStorePath: string
   projectName: string
-  ragBaseUrl: string
-  ragApiKeyEnv: string
   requestTimeoutMs: number
   ocrEnabled: boolean
   ocrBaseUrl: string

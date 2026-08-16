@@ -3,6 +3,7 @@ import { build } from 'esbuild'
 const external = [
   'react',
   'react/jsx-runtime',
+  'react-dom/client',
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-runtime/client',
   '@deepseek-ai/dsh-client-ui-settings/client',

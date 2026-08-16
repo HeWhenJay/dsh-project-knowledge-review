@@ -1,194 +1,199 @@
-# 项目知识复习插件
+# dsh-project-knowledge-review
 
-面向 DeepSeek Harness（DSH）的中文知识复习插件。它不追求让模型“知道更多”，而是要求模型只依据你实际保存或索引的学习资料回答：有 evidence 才回答；资料不足时明确拒答并提示补充资料，避免把模型记忆、网络常识和不相干内容混入学习答案。
+一个面向中文 DSH 用户的独立本地知识复习插件。
 
-从 `0.3.0` 起，插件安装后会在 DSH Web 的“设置”中增加“知识复习”栏目。用户可直接启停服务、切换本地/项目 RAG 模式，并配置 OCR、ASR、模型名、服务 URL 与 API Key。设置热更新，无需重新安装插件；API Key 使用 DSH 凭据库保存，页面不会回显明文。`0.3.1` 修复了 Host RAG 客户端与 Web 设置 bundle 的同名构建覆盖问题；`0.3.2` 修复 DSH ModuleLoader 中 `module is not defined` 的 Web bundle 包装错误；`0.4.0` 使用主题化运行模式菜单与 Lucide `BookOpenCheck` 图标，并新增意图分流、严格/参考回答策略、分页知识内容浏览器和可选的完整多模态一键准备。
+它把文字资料、OCR 图片文字和 ASR 音频转写保存到 DSH 用户目录，在回答知识问题前先检索本地 evidence；严格模式下没有足够证据就明确拒答。插件不需要数据库、向量模型、账号登录或项目 Token，也不会连接、安装或识别任何外部项目。
 
-## 开箱即用
+## 主要能力
 
-默认采用 `local` 零配置模式：不需要 PostgreSQL、pgvector、向量模型、Python 服务、登录令牌或 API Key。你只需在 DSH 中选择一个可用的对话模型，安装插件并刷新页面，然后把课程笔记、Markdown、文档摘录或字幕文本发给助手。
+- 零配置本地资料库：首次使用时自动创建 v2 存储。
+- Evidence-first 问答：先检索，再根据 evidence 回答；严格模式证据不足即拒答。
+- 当前 DSH 模型作答：插件只提供检索 evidence 和系统约束，最终答案仍由当前会话模型生成。
+- Markdown 摘要：文字、OCR、ASR 入库后立即生成 Markdown 自动提要；也可用当前 DSH 模型回写更好的 Markdown 摘要。
+- 两级分类：插件自动生成系统初分类，用户可在知识库页面建立并调整自己的二次分类。
+- 一级知识库页面：侧栏点击“知识库”进入独立工作区，可查看详细摘要和详细原始内容。
+- 安全 Markdown 预览：摘要与原始内容都支持渲染视图和 Markdown 源码视图；不执行 HTML 或脚本。
+- 可选 OCR / ASR：默认关闭，只有用户显式开启并配置 DSH 凭据后才访问对应服务。
+- 大库友好：轻量 JSONL 索引、单文档原文文件、游标分页和按需原文读取。
+- v1 自动迁移：旧版整库 JSON 会迁移到 v2，并保留不可覆盖的原始备份。
 
-默认本地资料库：
+## 安装
+
+```bash
+dsh plugin --profile web add dsh-project-knowledge-review
+```
+
+安装后重新启动当前 DSH Web 进程并刷新页面。插件会在 Web 设置页增加“知识复习”，并在侧栏增加“知识库”一级入口。
+
+默认设置无需修改：
+
+```text
+回答策略：strict
+资料库：~/.dsh/project-knowledge-review/knowledge.json
+OCR：关闭
+ASR：关闭
+```
+
+## 使用方式
+
+### 添加文字资料
+
+直接对 DSH 说：
+
+```text
+把下面内容加入知识库，标题是“React Hooks 笔记”：
+……
+```
+
+插件调用 `project_knowledge_add_text`，返回资料 ID、Markdown 摘要、摘要来源、系统初分类和用户分类。
+
+### 复习知识
+
+例如：
+
+```text
+根据我的知识库解释 useEffect 的清理函数。
+```
+
+插件先调用 `project_knowledge_search`。只有检索结果包含 evidence 时，当前 DSH 模型才可基于证据回答并引用资料标题和来源。
+
+### 查看知识库自身信息
+
+例如：
+
+```text
+我的知识库有多少份资料？
+这些资料保存在哪里？
+知识库是否与当前项目共享？
+```
+
+插件调用 `project_knowledge_overview`。作用域为当前 DSH 用户的本地资料库，`sharedWithCurrentProject` 始终为 `false`。
+
+### 浏览摘要和原始内容
+
+点击侧栏“知识库”：
+
+- 左侧：搜索、系统分类、用户二次分类和资料列表。
+- 中间：摘要 / 原始内容、渲染 / Markdown 源码。
+- 右侧：资料 ID、来源、字符数、时间、系统分类、摘要来源和用户分类。
+- 窄屏：资料导航自动变为抽屉，正文使用完整可用宽度。
+
+页面布局借鉴文档工作区的信息架构，不复制第三方品牌或素材。
+
+## 回答策略
+
+### `strict`（默认）
+
+- 知识问题必须先检索。
+- 只有 `answerStatus=ANSWERED` 且 evidence 非空时才能回答。
+- 只陈述 evidence 支持的结论。
+- 没有证据时必须明确说明：`当前知识库中没有足够证据，不能回答`。
+- 不使用模型记忆补齐知识结论。
+
+### `reference`
+
+- 仍先检索知识库。
+- 允许当前模型补充通用知识。
+- 必须明确区分“知识库证据”和“模型补充”。
+
+可以在“设置 → 知识复习”中切换策略。
+
+## 工具
+
+插件公开以下 DSH 工具：
+
+| 工具 | 用途 |
+| --- | --- |
+| `project_knowledge_overview` | 查询数量、标题、来源、存储位置、作用域和共享状态 |
+| `project_knowledge_search` | 检索本地 evidence |
+| `project_knowledge_add_text` | 添加用户提供或确认有权使用的文字资料 |
+| `project_knowledge_update_summary` | 用当前 DSH 模型生成的 Markdown 摘要更新一份资料 |
+| `project_knowledge_import_image_ocr` | 对公开图片 URL 执行 OCR 后入库 |
+| `project_knowledge_import_audio_asr` | 对公开直链音频执行 ASR 后入库 |
+
+工具名为了保持已有 DSH 会话兼容而保留 `project_knowledge_*` 前缀；这不表示插件会连接任何外部项目。
+
+## 本地 v2 存储
+
+默认路径：
 
 ```text
 ~/.dsh/project-knowledge-review/knowledge.json
 ```
 
-Windows 上通常为：
+同目录还会出现：
 
 ```text
-C:\Users\你的用户名\.dsh\project-knowledge-review\knowledge.json
+knowledge.json                         # 常数大小 manifest
+knowledge.json.index.jsonl             # 元数据与检索 token 轻量索引
+knowledge.json.documents/              # 每份资料一个 JSON 原文文件
+knowledge.json.categories.json         # 用户二次分类
+knowledge.json.locks/                   # 多进程 ticket 锁
+knowledge.json.journal.json             # 中断恢复日志，仅写入期间存在
+knowledge.json.v1.backup*.json          # v1 迁移备份（如有）
 ```
 
-本地模式使用中文字符、英文单词和技术标识符的关键词覆盖率与标题加权排序。它没有模型下载和额外费用，但近义表达、跨语言语义匹配弱于向量检索。资料未命中时，严格拒答规则仍然生效。
+v2 的设计目标：
 
-## DSH Web 设置栏目
+- 列表和概览不加载全量原文。
+- 原文按单条 ID 哈希文件名直接定位。
+- 写入和元数据更新使用跨进程 ticket 锁。
+- journal 中断恢复保持清单、JSONL 索引和单条原文一致。
+- 单次预览、请求体和媒体文件均有大小限制。
 
-安装或升级后刷新 `http://127.0.0.1:3080`，进入“设置 → 知识复习”。当前 DSH `0.1.0-rc.6` 对第三方 settings namespace 仍有 Web 白名单限制，因此插件内置了仅限本机回环访问的设置桥接；API Key 仍完全使用 DSH 官方 credentials API。
+## OCR 与 ASR
 
-| 设置 | 默认值 | 生效方式 | 说明 |
-| --- | --- | --- | --- |
-| 开启知识复习服务 | 开启 | 立即 | 关闭后系统提示词保持静默，所有知识复习工具拒绝执行 |
-| 运行模式 | `local` | 立即 | `local` 为本地 JSON；`project-rag` 连接项目 Python RAG |
-| 回答策略 | `strict` | 立即 | `strict` 仅 evidence；`reference` 知识库优先并允许标注的模型补充 |
-| 知识库名称 | `我的知识库` | 立即 | 用于严格知识复习提示词 |
-| 本地资料库路径 | `~/.dsh/project-knowledge-review/knowledge.json` | 下次调用 | 可改到其他磁盘 |
-| RAG 服务 URL | `http://127.0.0.1:8090` | 下次调用 | 仅项目 RAG 模式使用 |
-| 请求超时 | `120000` 毫秒 | 下次调用 | 适用于项目 RAG、OCR、ASR |
-| OCR 开关 | 关闭 | 立即 | 开启图片 URL 识别工具 |
-| OCR Base URL | 百炼兼容地址 | 下次调用 | OpenAI 兼容 `/chat/completions` 服务根地址 |
-| OCR 模型 | `qwen-vl-ocr` | 下次调用 | 可改成兼容视觉模型名称 |
-| OCR 凭据引用 | `DSH_KNOWLEDGE_OCR_API_KEY` | 下次调用 | 这是引用名，不是 Key 明文 |
-| ASR 开关 | 关闭 | 立即 | 开启可下载音频 URL 转写工具 |
-| ASR Base URL | `https://api.openai.com/v1` | 下次调用 | OpenAI 兼容 `/audio/transcriptions` 服务根地址 |
-| ASR 模型 | `whisper-1` | 下次调用 | 可改成兼容转写模型名称 |
-| ASR 凭据引用 | `DSH_KNOWLEDGE_ASR_API_KEY` | 下次调用 | 这是引用名，不是 Key 明文 |
+OCR / ASR 默认关闭。启用步骤：
 
-### 意图分流与回答策略
+1. 打开“设置 → 知识复习”。
+2. 开启对应服务。
+3. 配置 Base URL 与模型名称。
+4. 将 API Key 保存到 DSH 凭据库。
 
-插件会先区分：知识问题、知识库自身信息、资料导入和普通工程请求。询问“有哪些资料、存储在哪里、是否与当前项目共用”时使用 `project_knowledge_overview`，不会再误走 evidence 查询和严格拒答链。
+安全边界：
 
-- 严格知识库：只有 evidence 命中时才回答，且只陈述资料支持的结论。
-- 参考知识库：知识库 evidence 作为优先上下文；允许当前 DSH 模型补充，但必须把“知识库内容”和“模型补充”分开标注。
+- 只接受公开 HTTP(S) 图片 URL，或公开可直接下载的音频 URL。
+- 拒绝 URL 用户信息、非 HTTP(S) 协议、本机地址和私有网络地址。
+- API Key 不写入插件设置 JSON，也不会回显。
+- 插件不自动处理视频网页分享页；请提供字幕文字或公开音频直链。
 
-### 大规模知识内容浏览
+## 设置项
 
-设置页的“知识库内容”默认折叠，展开后才请求数据。列表采用服务端游标分页，每页最多 30 条，只返回标题、来源、状态等元数据；点击单条时才读取原文，单次预览最多 200,000 字符。翻页替换当前页而不无限追加，因此数万条资料时浏览器 DOM 仍保持常数级规模。项目 RAG 使用 `(updated_at, id)` keyset 游标；本地零配置模式使用轻量 JSONL sidecar 索引和单条原文文件，翻页不再重复解析整库原文。旧版 `knowledge.json` 会在首次访问时自动迁移并保留 `.v1.backup.json` 备份。
-
-作用域说明：默认本地库位于 DSH 用户目录并跨工作区共用；项目 RAG 使用独立 `DSH_PLUGIN_RAG_USER_ID` 分区，不会自动等同于当前项目网站登录用户的资料库。
-
-### API Key 安全行为
-
-- 页面只允许“写入新 Key”或“删除 Key”，不会读取或回填已保存的明文。
-- 本地凭据默认保存在 `$DSH_HOME/.credentials.yaml`，不是 `settings.yaml`。
-- Host 在每次 OCR/ASR 操作开始时重新解析凭据，Key 轮换后下一次请求立即生效。
-- Key 不进入 `cordis.patch.yml`、日志、前端状态、源码或 Git。
-- 若同名环境变量覆盖本地凭据，页面会显示来源且可能不可写；这是 DSH 凭据 provider 的保护行为。
-- 设置与凭据 RPC 只允许回环同源页面使用；通过局域网或反向代理打开的远程匿名页面不能配置 Key。
-
-## 能力与依赖
-
-| 能力 | `local` | `project-rag` |
+| 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| 纯文本写入与 evidence 检索 | 支持 | 支持 |
-| PostgreSQL / pgvector | 不需要 | 需要 |
-| embedding / rerank | 不需要 | 通常需要，由 Python RAG 配置 |
-| PDF / Office / 扫描件 | 不支持 | 支持，取决于项目解析服务 |
-| 图片 URL OCR | 可选，直接在 DSH 设置配置 | 可使用本插件 OCR，也可由项目 RAG 处理 |
-| 可下载音频 URL ASR | 可选，直接在 DSH 设置配置 | 可使用本插件 ASR，也可由项目 RAG 处理 |
-| 视频网页 URL | 不支持 | 支持，由项目 RAG 入队索引 |
-| 最终答案模型 | 当前 DSH 会话模型 | 当前 DSH 会话模型 |
-| 项目登录 Token | 不需要 | 不需要 |
+| `enabled` | `true` | 关闭后工具和提示词保持静默 |
+| `answerPolicy` | `strict` | `strict` 或 `reference` |
+| `localStorePath` | `~/.dsh/project-knowledge-review/knowledge.json` | 插件自己的本地资料库 |
+| `projectName` | `我的知识库` | 用户可见名称；仅是命名，不是外部项目 |
+| `requestTimeoutMs` | `120000` | OCR / ASR 请求超时 |
+| `ocrEnabled` | `false` | 是否启用 OCR |
+| `ocrBaseUrl` | DashScope OpenAI 兼容地址 | OCR 服务地址 |
+| `ocrModel` | `qwen-vl-ocr` | OCR 模型 |
+| `ocrApiKeyEnv` | `DSH_KNOWLEDGE_OCR_API_KEY` | DSH 凭据引用名 |
+| `asrEnabled` | `false` | 是否启用 ASR |
+| `asrBaseUrl` | OpenAI API 地址 | ASR 服务地址 |
+| `asrModel` | `whisper-1` | ASR 模型 |
+| `asrApiKeyEnv` | `DSH_KNOWLEDGE_ASR_API_KEY` | DSH 凭据引用名 |
 
-## OCR 与 ASR 边界
+## 隐私与发布边界
 
-本插件直接提供：
+- 插件独立发布、独立运行、独立存储。
+- 插件没有项目 URL、项目 API Key、配对码、能力文件或项目安装逻辑。
+- 插件不会主动向外部项目同步资料。
+- 插件摘要和分类只属于插件本地库。
+- 如果个人项目希望使用这些资料，应由该项目在自己的服务端实现主动、只读同步；这不属于本插件的公共能力。
 
-- `project_knowledge_import_image_ocr`：下载公开图片 URL，调用 OpenAI 兼容视觉接口，并把识别文本写入本地知识库。
-- `project_knowledge_import_audio_asr`：下载公开可直连音频 URL，调用 OpenAI 兼容转写接口，并把文本写入本地知识库。
+## 开发
 
-安全限制：
-
-- 只允许 `http` / `https` URL。
-- 拒绝本机、环回和私有网络地址，并在每次重定向后重新检查。
-- 图片最大 15MB，音频最大 100MB。
-- ASR 工具处理的是可直接下载的音频文件，不是抖音、Bilibili、YouTube 等视频分享网页。视频网页应切换 `project-rag`，由项目 RAG 的平台下载、字幕和耐久任务链处理。
-
-## 可选项目 RAG 增强模式
-
-需要 PDF/Office/扫描件、视频网页 URL、语义向量检索、BM25 + pgvector、重排、RRF、耐久索引任务或大量资料时，展开设置页的“新手一键准备”：
-
-1. 填写 DashScope 模型 Key。点击准备时，插件会先把 Key 安全写入 DSH 凭据库，明文不进入浏览器持久状态、普通设置、项目文件或日志。
-2. 保持默认安装目录，点击“一键准备完整多模态”并确认。
-3. 插件自动检查 Docker、Git、Conda，下载官方项目，创建插件独占的 pgvector 容器、具名数据卷和安装目录内的隔离 Conda 环境，然后执行非破坏性数据库 bootstrap。
-4. 只有 `/health` 和插件固定知识分区接口都通过后，运行模式才自动切换到 `project-rag`。
-
-数据库密码由插件随机生成，只保存在 DSH 用户私有安装目录。重复启动会复用带插件 ownership label 的容器和持久卷，不会接管、关闭或替换同名但不归插件管理的容器，也不会杀死占用 5433/8090 的其他进程。失败时页面显示原因，默认 `local` 模式始终可继续使用。
-
-一键准备不会声称静默安装 Docker Desktop、WSL2、虚拟化能力或代替用户申请第三方模型 Key；这些属于操作系统或外部账号边界。缺少时页面会明确标出 Docker/Git/Conda 状态。已有高级部署也可以直接填写 RAG 服务 URL 并手动选择 `project-rag`。
-
-项目 RAG 模式调用本机回环 `/api/dsh-plugin/rag/*` 接口，使用独立的 `DSH_PLUGIN_RAG_USER_ID` 资料分区，不需要网站登录 Token，也不会自动与当前项目网站登录用户的资料库共用。
-
-## 安装与升级
-
-安装：
-
-```powershell
-dsh plugin --profile web add github:HeWhenJay/dsh-project-knowledge-review
+```bash
+npm install
+npm test
+npm run typecheck
+npm pack --dry-run
 ```
 
-升级：
+`npm test` 会先清理并重建 `lib/`，防止删除过的旧功能残留在发布包中。
 
-```powershell
-dsh plugin --profile web update dsh-project-knowledge-review
-```
+## License
 
-安装或升级后刷新现有 DSH Web 页面，不需要启动替代 Web 服务器。默认本地模式不需要再启动任何服务。
-
-## 模型工具与严格回答流程
-
-- `project_knowledge_search`：检索当前模式的知识库；只有返回 evidence 时才能回答。
-- `project_knowledge_add_text`：把用户提供或确认有权使用的纯文本写入本地知识库。
-- `project_knowledge_import_image_ocr`：OCR 公开图片 URL 后写入本地知识库。
-- `project_knowledge_import_audio_asr`：ASR 公开可下载音频 URL 后写入本地知识库。
-- `project_knowledge_import_video`：仅项目 RAG 模式可用，把公开视频网页 URL 提交到索引队列。
-
-```text
-知识问题
-  ↓
-project_knowledge_search
-  ├─ 有 evidence → 当前 DSH 模型仅依据 evidence 回答
-  └─ 无 evidence → 明确拒答，不用通用模型知识补齐
-                         ↓
-             粘贴文本 / OCR 图片 / ASR 音频
-             或 project-rag 导入视频网页
-                         ↓
-                    重新检索后回答
-```
-
-## 配置文件默认值
-
-插件包附带的 `cordis.patch.yml` 提供安全默认值；Web 页面中的用户设置作为更高优先级的持久层覆盖这些默认值。普通用户不需要手改 YAML。
-
-```yaml
-- insert:
-    - id: project-knowledge-review
-      name: dsh-project-knowledge-review
-      config:
-        enabled: true
-        mode: local
-        answerPolicy: strict
-        localStorePath: ~/.dsh/project-knowledge-review/knowledge.json
-        projectName: 我的知识库
-        ragBaseUrl: http://127.0.0.1:8090
-        ragApiKeyEnv: DSH_KNOWLEDGE_RAG_API_KEY
-        requestTimeoutMs: 120000
-        ocrEnabled: false
-        ocrBaseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
-        ocrModel: qwen-vl-ocr
-        ocrApiKeyEnv: DSH_KNOWLEDGE_OCR_API_KEY
-        asrEnabled: false
-        asrBaseUrl: https://api.openai.com/v1
-        asrModel: whisper-1
-        asrApiKeyEnv: DSH_KNOWLEDGE_ASR_API_KEY
-```
-
-## 隐私与限制
-
-- 本地文本资料默认只写入你的 JSON 文件，不会自动联网搜索知识。
-- 启用 OCR/ASR 后，用户明确提交的媒体内容会发送到配置的模型服务端点。
-- 插件不会把存储的 API Key 交给模型；Key 只在 Host 发起指定服务请求时使用。
-- 资料不足时拒答是刻意设计的学习证据约束，不是故障。
-- 本地 JSON 不适合多人、海量资料或严格权限管理；这些需求应使用项目 RAG。
-
-## 开发验证
-
-```powershell
-corepack pnpm install
-corepack pnpm run typecheck
-corepack pnpm test
-```
-
-## 许可证
-
-[MIT](LICENSE)
+MIT

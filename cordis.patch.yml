@@ -2,17 +2,12 @@
     - id: project-knowledge-review
       name: dsh-project-knowledge-review
       config:
-        # 安装后可在 DSH Web → 设置 → 知识复习中热更新以下配置。
+        # 公开插件只使用自己的本地资料库，不连接或安装任何外部项目。
         enabled: true
-        # 默认零配置本地模式：无需 PostgreSQL、向量模型和 API Key。
-        mode: local
         # strict：仅知识库证据；reference：知识库优先，可标注模型补充。
         answerPolicy: strict
         localStorePath: ~/.dsh/project-knowledge-review/knowledge.json
         projectName: 我的知识库
-        # 仅 mode=project-rag 时需要以下两项。
-        ragBaseUrl: http://127.0.0.1:8090
-        ragApiKeyEnv: DSH_KNOWLEDGE_RAG_API_KEY
         requestTimeoutMs: 120000
         # OCR/ASR 默认关闭；API Key 在 Web 设置页写入 DSH 凭据库。
         ocrEnabled: false

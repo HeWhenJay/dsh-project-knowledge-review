@@ -1,24 +1,26 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { getLocalDocument, listLocalDocuments, localKnowledgeOverview, resolveLocalStorePath } from './local-store.js'
-import { listProjectMaterials, previewProjectMaterial, projectKnowledgeOverview } from './client.js'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { KnowledgeSetupService } from './setup-service.js'
+import {
+  createLocalUserCategory,
+  getLocalDocument,
+  listLocalDocuments,
+  listLocalSummaries,
+  localKnowledgeOverview,
+  resolveLocalStorePath,
+  updateLocalDocumentMetadata,
+} from './local-store.js'
 import { KNOWLEDGE_SETTINGS_NAMESPACE, type KnowledgeSettings } from './settings.js'
 
 const SETTINGS_PATH = '/api/project-knowledge-review/settings'
 const KNOWLEDGE_PREFIX = '/api/project-knowledge-review/knowledge'
-const SETUP_PREFIX = '/api/project-knowledge-review/setup'
 const MAX_BODY_BYTES = 64 * 1024
 
-/** 为 rc.6 的第三方 namespace 白名单限制提供仅回环设置与知识浏览桥接。 */
+/** 注册独立插件的本机设置、资料浏览、摘要和分类桥接。 */
 export function registerSettingsBridge(ctx: Context, current: () => KnowledgeSettings): void {
   ctx.inject(['webServer', 'settings'], (bridgeCtx) => {
-    const setup = new KnowledgeSetupService(undefined, async () => { await bridgeCtx.settings.update(KNOWLEDGE_SETTINGS_NAMESPACE, { mode: 'project-rag', ragBaseUrl: 'http://127.0.0.1:8090' }) })
     bridgeCtx.effect(() => bridgeCtx.webServer.register({ kind: 'exact', path: SETTINGS_PATH, handler: (req, res) => handleSettings(bridgeCtx, req, res) }), 'project-knowledge-review: settings bridge')
-    bridgeCtx.effect(() => bridgeCtx.webServer.register({ kind: 'prefix', path: KNOWLEDGE_PREFIX, handler: (req, res) => handleKnowledge(current, req, res) }), 'project-knowledge-review: knowledge browser bridge')
-    bridgeCtx.effect(() => bridgeCtx.webServer.register({ kind: 'prefix', path: SETUP_PREFIX, handler: (req, res) => handleSetup(bridgeCtx, setup, current, req, res) }), 'project-knowledge-review: setup bridge')
+    bridgeCtx.effect(() => bridgeCtx.webServer.register({ kind: 'prefix', path: KNOWLEDGE_PREFIX, handler: (req, res) => handleKnowledge(current, req, res) }), 'project-knowledge-review: local knowledge bridge')
   })
 }
 
@@ -44,77 +46,71 @@ async function handleSettings(ctx: Context, req: IncomingMessage, res: ServerRes
   }
 }
 
-/** 分页返回元数据；原文仅按单条 ID 请求，避免大知识库压入浏览器内存。 */
+/** 只访问插件自己的 v2 本地资料库，不代理或识别任何外部项目。 */
 async function handleKnowledge(current: () => KnowledgeSettings, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, message: '知识浏览接口仅允许当前 DSH 页面在本机访问' })
-  if (req.method !== 'GET') return send(res, 405, { ok: false, message: '请求方法不支持' })
+  if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, message: '知识库接口仅允许当前 DSH 页面在本机访问' })
   const settings = current()
+  const path = resolveLocalStorePath(settings.localStorePath)
   try {
     const url = new URL(req.url ?? KNOWLEDGE_PREFIX, 'http://127.0.0.1')
     const suffix = url.pathname.slice(KNOWLEDGE_PREFIX.length)
-    const ragConfig = { ragBaseUrl: settings.ragBaseUrl, requestTimeoutMs: settings.requestTimeoutMs }
-    if (suffix === '/overview') {
-      if (settings.mode === 'local') {
-        const overview = await localKnowledgeOverview(resolveLocalStorePath(settings.localStorePath))
-        return send(res, 200, { ok: true, mode: 'local', ...overview, sharedWithCurrentProject: false })
-      }
-      const payload = await projectKnowledgeOverview(ragConfig)
-      return send(res, 200, { ok: true, mode: 'project-rag', scope: 'dsh-plugin-fixed-partition', sharedWithCurrentProject: false, partition: 'DSH_PLUGIN_RAG_USER_ID', ...payload.data })
+    if (req.method === 'GET' && suffix === '/overview') {
+      const overview = await localKnowledgeOverview(path)
+      return send(res, 200, { ok: true, mode: 'local', ...overview, sharedWithCurrentProject: false })
     }
-    if (suffix === '/materials') {
-      const cursor = url.searchParams.get('cursor') || undefined
-      const query = url.searchParams.get('query') || ''
-      const limit = Number(url.searchParams.get('limit') || 30)
-      if (settings.mode === 'local') return send(res, 200, { ok: true, mode: 'local', ...(await listLocalDocuments(resolveLocalStorePath(settings.localStorePath), cursor, limit, query)) })
-      const payload = await listProjectMaterials(ragConfig, cursor, limit, query)
-      return send(res, 200, { ok: true, mode: 'project-rag', items: payload.data?.items ?? [], nextCursor: payload.data?.nextCursor, hasMore: payload.data?.hasMore ?? false, total: payload.data?.total ?? 0 })
+    if (req.method === 'GET' && suffix === '/materials') {
+      const page = await listLocalDocuments(path, url.searchParams.get('cursor') || undefined, Number(url.searchParams.get('limit') || 30), url.searchParams.get('query') || '')
+      return send(res, 200, { ok: true, mode: 'local', ...page })
     }
-    const match = /^\/materials\/([^/]+)\/content$/.exec(suffix)
-    if (match) {
-      const id = decodeURIComponent(match[1])
-      if (settings.mode === 'local') {
-        const document = await getLocalDocument(resolveLocalStorePath(settings.localStorePath), id)
-        if (!document) return send(res, 404, { ok: false, message: '资料不存在' })
-        return send(res, 200, { ok: true, id: document.id, title: document.title, source: document.source, contentType: 'text/plain; charset=UTF-8', ...previewText(document.content) })
-      }
-      const payload = await previewProjectMaterial(ragConfig, id)
-      if (!payload.data?.content) return send(res, 404, { ok: false, message: payload.msg || '资料原文不可用' })
-      return send(res, 200, { ok: true, id, ...payload.data, ...previewText(payload.data.content) })
+    if (req.method === 'GET' && suffix === '/summaries') {
+      const userCategoryParam = url.searchParams.has('userCategory') ? url.searchParams.get('userCategory') ?? '' : undefined
+      const page = await listLocalSummaries(path, url.searchParams.get('cursor') || undefined, Number(url.searchParams.get('limit') || 30), url.searchParams.get('query') || '', url.searchParams.get('systemCategory') || '', userCategoryParam)
+      return send(res, 200, { ok: true, ...page })
     }
-    return send(res, 404, { ok: false, message: '知识浏览路径不存在' })
-  } catch (error) {
-    return send(res, 502, { ok: false, message: `知识浏览失败：${messageOf(error)}` })
-  }
-}
-
-/** 一键准备只允许本机明确 POST 启动；GET 仅查询状态。 */
-async function handleSetup(ctx: Context, setup: KnowledgeSetupService, current: () => KnowledgeSettings, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, message: '一键准备接口仅允许当前 DSH 页面在本机访问' })
-  const url = new URL(req.url ?? SETUP_PREFIX, 'http://127.0.0.1')
-  const suffix = url.pathname.slice(SETUP_PREFIX.length)
-  try {
-    if (req.method === 'GET' && (suffix === '' || suffix === '/status')) return send(res, 200, { ok: true, ...(await setup.describe()) })
-    if (req.method === 'POST' && suffix === '/start') {
+    if (req.method === 'POST' && suffix === '/categories') {
       requireJsonContentType(req)
       const body = await readJson(req)
-      const settings = current()
-      const key = await ctx.get('credentials')?.resolve(credentialRef(settings.ragApiKeyEnv))
-      return send(res, 202, { ok: true, ...setup.start(typeof body.installRoot === 'string' ? body.installRoot : undefined, key?.value) })
+      const categories = await createLocalUserCategory(path, typeof body.name === 'string' ? body.name : '')
+      return send(res, 201, { ok: true, categories })
     }
-    return send(res, 404, { ok: false, message: '一键准备路径不存在' })
+    const contentMatch = /^\/materials\/([^/]+)\/content$/.exec(suffix)
+    if (req.method === 'GET' && contentMatch) {
+      const id = decodeURIComponent(contentMatch[1])
+      const document = await getLocalDocument(path, id)
+      if (!document) return send(res, 404, { ok: false, message: '资料不存在' })
+      return send(res, 200, { ok: true, id: document.id, title: document.title, source: document.source, contentType: 'text/plain; charset=UTF-8', ...previewText(document.content) })
+    }
+    const metadataMatch = /^\/materials\/([^/]+)\/metadata$/.exec(suffix)
+    if (req.method === 'PUT' && metadataMatch) {
+      requireJsonContentType(req)
+      const body = await readJson(req)
+      const patch: { summary?: string; summarySource?: 'extractive' | 'model'; systemCategory?: string; userCategory?: string | null } = {}
+      if (typeof body.summary === 'string') patch.summary = body.summary
+      if (body.summarySource === 'extractive' || body.summarySource === 'model') patch.summarySource = body.summarySource
+      if (typeof body.systemCategory === 'string') patch.systemCategory = body.systemCategory
+      if (typeof body.userCategory === 'string' || body.userCategory === null) patch.userCategory = body.userCategory
+      if (!Object.keys(patch).length) return send(res, 400, { ok: false, message: '没有可更新的资料元数据' })
+      const document = await updateLocalDocumentMetadata(path, decodeURIComponent(metadataMatch[1]), patch)
+      return send(res, 200, { ok: true, item: publicSummary(document) })
+    }
+    return send(res, 404, { ok: false, message: '知识库路径不存在' })
   } catch (error) {
-    return send(res, 400, { ok: false, message: messageOf(error) })
+    return send(res, req.method === 'GET' ? 502 : 400, { ok: false, message: `知识库操作失败：${messageOf(error)}` })
   }
 }
 
 const ALLOWED_FIELDS = new Set([
-  'enabled', 'mode', 'answerPolicy', 'localStorePath', 'projectName', 'ragBaseUrl', 'ragApiKeyEnv', 'requestTimeoutMs',
+  'enabled', 'answerPolicy', 'localStorePath', 'projectName', 'requestTimeoutMs',
   'ocrEnabled', 'ocrBaseUrl', 'ocrModel', 'ocrApiKeyEnv',
   'asrEnabled', 'asrBaseUrl', 'asrModel', 'asrApiKeyEnv',
 ])
 
+function publicSummary(document: Awaited<ReturnType<typeof updateLocalDocumentMetadata>>) {
+  return { id: document.id, title: document.title, source: document.source, createdAt: document.createdAt, updatedAt: document.updatedAt, contentLength: document.content.length, summary: document.summary, summarySource: document.summarySource, systemCategory: document.systemCategory, userCategory: document.userCategory }
+}
+
 function previewText(content: string): { content: string; contentLength: number; truncated: boolean } {
-  const maxCharacters = 200_000
+  const maxCharacters = 2_000_000
   return { content: content.slice(0, maxCharacters), contentLength: content.length, truncated: content.length > maxCharacters }
 }
 
@@ -129,7 +125,7 @@ async function readJson(req: IncomingMessage): Promise<any> {
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     size += bytes.byteLength
-    if (size > MAX_BODY_BYTES) throw new Error('设置请求体过大')
+    if (size > MAX_BODY_BYTES) throw new Error('知识库请求体过大')
     chunks.push(bytes)
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')

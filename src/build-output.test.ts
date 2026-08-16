@@ -3,11 +3,13 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-import { importProjectVideo, searchProjectKnowledge } from './client.js'
+import { addLocalDocument, listLocalSummaries, searchLocalKnowledge } from './local-store.js'
 
-test('主机端 RAG 客户端不会被网页设置面板覆盖', async () => {
-  assert.equal(typeof searchProjectKnowledge, 'function')
-  assert.equal(typeof importProjectVideo, 'function')
+/** Host 入口只依赖插件自己的本地库，Web 设置仍使用独立 bundle。 */
+test('主机端保留独立本地知识库与摘要能力', async () => {
+  assert.equal(typeof addLocalDocument, 'function')
+  assert.equal(typeof listLocalSummaries, 'function')
+  assert.equal(typeof searchLocalKnowledge, 'function')
 
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     exports: Record<string, string>
@@ -17,10 +19,10 @@ test('主机端 RAG 客户端不会被网页设置面板覆盖', async () => {
   assert.equal(packageJson.exports['./package.json'], './package.json')
   assert.ok(packageJson.dsh.client.inject.includes('@deepseek-ai/dsh-client-connection'))
 
-  const hostClient = await readFile(new URL('./client.js', import.meta.url), 'utf8')
+  const host = await readFile(new URL('./index.js', import.meta.url), 'utf8')
   const webClient = await readFile(new URL('./web-client.js', import.meta.url), 'utf8')
-  assert.match(hostClient, /export async function searchProjectKnowledge/)
-  assert.doesNotMatch(hostClient, /__ModuleLoader__/)
+  assert.match(host, /addLocalDocument/)
+  assert.doesNotMatch(host, /dsh-plugin\/rag|ProjectBinding|KnowledgeSetupService/)
   assert.match(webClient, /__ModuleLoader__\.load/)
   assert.match(webClient, /var module = \{ exports: \{\} \}/)
   assert.match(webClient, /settings\.section/)
@@ -39,8 +41,9 @@ test('Web bundle 可在 DSH ModuleLoader factory 中执行并返回插件导出'
   assert.equal(registration?.id, 'dsh-project-knowledge-review')
   const component = () => null
   const modules: Record<string, unknown> = {
-    react: { useEffect: () => undefined, useState: (value: unknown) => [value, () => undefined] },
+    react: { useEffect: () => undefined, useMemo: (value: () => unknown) => value(), useRef: (value: unknown) => ({ current: value }), useState: (value: unknown) => [value, () => undefined] },
     'react/jsx-runtime': { jsx: component, jsxs: component, Fragment: Symbol('Fragment') },
+    'react-dom/client': { createRoot: () => ({ render: () => undefined, unmount: () => undefined }) },
     '@deepseek-ai/dsh-client-ui-primitives': { Button: component, Input: component, StateDot: component },
   }
   const exports = registration?.factory((id) => {
