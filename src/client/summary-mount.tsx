@@ -27,23 +27,34 @@ export class SummaryController {
 export function mountSummarySidebar(controller: SummaryController): () => void {
   const entry = document.createElement('button')
   entry.type = 'button'; entry.dataset.dshKnowledgeSummaryEntry = ''; entry.className = 'dsh-knowledge-summary-entry'; entry.title = '知识库'; entry.setAttribute('aria-label', '打开知识库页面')
-  entry.innerHTML = '<span class="dsh-knowledge-summary-entry-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8M8 11h6"/></svg></span><span class="dsh-knowledge-summary-entry-label">知识库</span>'
-  entry.addEventListener('click', () => controller.toggle())
+  entry.innerHTML = '<span class="dsh-knowledge-summary-entry-icon"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13.2A1.7 1.7 0 0 1 4.7 11.5H13"/><path d="M4.7 2H13v12H4.7A1.7 1.7 0 0 1 3 12.3V3.7A1.7 1.7 0 0 1 4.7 2Z"/><path d="M6 5h5M6 7.8h4"/></svg></span><span class="dsh-knowledge-summary-entry-label">知识库</span>'
+  entry.addEventListener('click', () => {
+    if (!controller.getSnapshot().open) document.querySelector<HTMLButtonElement>('[data-dsh-taskboard-entry][data-active]')?.click()
+    controller.toggle()
+  })
   const sync = (): void => { if (controller.getSnapshot().open) entry.dataset.active = 'true'; else delete entry.dataset.active }
   const unsubscribe = controller.subscribe(sync); sync()
   let root: HTMLElement | undefined
   const place = (): void => {
     const column = document.querySelector<HTMLElement>('[data-pane="sidebar"], [class*="sidebarCol"]')
     root = column?.querySelector<HTMLElement>('[class*="logoRow"]')?.parentElement ?? column?.firstElementChild as HTMLElement | undefined
-    if (!root || entry.parentElement === root) return
+    if (!root) return
+    const workspace = Array.from(root.children).find((element) => element instanceof HTMLElement && element.querySelector('[class*="sectionHeader"] [class*="sectionLabel"]')?.textContent?.trim() === '工作区')
     const family = Array.from(root.children).filter((element) => element instanceof HTMLElement && element.matches('[data-dsh-taskboard-entry], [data-dsh-ssh-entry], [data-dsh-knowledge-summary-entry]'))
-    const anchor = family.at(-1)?.nextSibling ?? root.querySelector('button[class*="newSession"]')?.parentElement?.nextSibling
-    root.insertBefore(entry, anchor ?? null)
+    const fallback = family.filter((element) => element !== entry).at(-1)?.nextSibling ?? root.querySelector('button[class*="newSession"]')?.nextSibling
+    const anchor = workspace ?? fallback ?? null
+    if (entry.parentElement !== root || entry.nextSibling !== anchor) root.insertBefore(entry, anchor)
   }
   const observer = new MutationObserver(place); observer.observe(document.body, { childList: true, subtree: true }); place()
   const other = (event: Event): void => { if ((event as CustomEvent<string>).detail !== 'knowledge-summary') controller.close() }
+  const leaveOnExternalPointer = (event: Event): void => {
+    if (!controller.getSnapshot().open || !(event.target instanceof Node) || entry.contains(event.target)) return
+    const view = document.querySelector<HTMLElement>('[data-dsh-knowledge-summary-view]')
+    if (!view?.contains(event.target)) controller.close()
+  }
   document.addEventListener('dsh-panel-activate', other)
-  return () => { observer.disconnect(); unsubscribe(); document.removeEventListener('dsh-panel-activate', other); entry.remove(); controller.close() }
+  document.addEventListener('pointerdown', leaveOnExternalPointer, true)
+  return () => { observer.disconnect(); unsubscribe(); document.removeEventListener('dsh-panel-activate', other); document.removeEventListener('pointerdown', leaveOnExternalPointer, true); entry.remove(); controller.close() }
 }
 
 /** 在中心列挂独立 React 根；Shell 重建中心列时自动重挂。 */

@@ -1,6 +1,6 @@
 {
   "name": "dsh-project-knowledge-review",
-  "version": "0.5.0",
+  "version": "0.5.9",
   "description": "中文 DSH 本地知识复习插件：零配置资料库、证据优先问答、Markdown 摘要与二次分类。",
   "type": "module",
   "license": "MIT",
