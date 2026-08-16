@@ -13,7 +13,7 @@ const external = [
 await build({
   entryPoints: ['src/client/index.tsx'],
   bundle: true,
-  outfile: 'lib/client.js',
+  outfile: 'lib/web-client.js',
   platform: 'browser',
   format: 'cjs',
   target: 'es2022',
