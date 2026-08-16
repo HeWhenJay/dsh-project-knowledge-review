@@ -2,7 +2,7 @@
 
 面向 DeepSeek Harness（DSH）的中文知识复习插件。它不追求让模型“知道更多”，而是要求模型只依据你实际保存或索引的学习资料回答：有 evidence 才回答；资料不足时明确拒答并提示补充资料，避免把模型记忆、网络常识和不相干内容混入学习答案。
 
-从 `0.3.0` 起，插件安装后会在 DSH Web 的“设置”中增加“知识复习”栏目。用户可直接启停服务、切换本地/项目 RAG 模式，并配置 OCR、ASR、模型名、服务 URL 与 API Key。设置热更新，无需重新安装插件；API Key 使用 DSH 凭据库保存，页面不会回显明文。`0.3.1` 修复了 Host RAG 客户端与 Web 设置 bundle 的同名构建覆盖问题；`0.3.2` 修复 DSH ModuleLoader 中 `module is not defined` 的 Web bundle 包装错误。
+从 `0.3.0` 起，插件安装后会在 DSH Web 的“设置”中增加“知识复习”栏目。用户可直接启停服务、切换本地/项目 RAG 模式，并配置 OCR、ASR、模型名、服务 URL 与 API Key。设置热更新，无需重新安装插件；API Key 使用 DSH 凭据库保存，页面不会回显明文。`0.3.1` 修复了 Host RAG 客户端与 Web 设置 bundle 的同名构建覆盖问题；`0.3.2` 修复 DSH ModuleLoader 中 `module is not defined` 的 Web bundle 包装错误；`0.4.0` 使用主题化运行模式菜单与 Lucide `BookOpenCheck` 图标，并新增意图分流、严格/参考回答策略、分页知识内容浏览器和可选的完整多模态一键准备。
 
 ## 开箱即用
 
@@ -30,6 +30,7 @@ C:\Users\你的用户名\.dsh\project-knowledge-review\knowledge.json
 | --- | --- | --- | --- |
 | 开启知识复习服务 | 开启 | 立即 | 关闭后系统提示词保持静默，所有知识复习工具拒绝执行 |
 | 运行模式 | `local` | 立即 | `local` 为本地 JSON；`project-rag` 连接项目 Python RAG |
+| 回答策略 | `strict` | 立即 | `strict` 仅 evidence；`reference` 知识库优先并允许标注的模型补充 |
 | 知识库名称 | `我的知识库` | 立即 | 用于严格知识复习提示词 |
 | 本地资料库路径 | `~/.dsh/project-knowledge-review/knowledge.json` | 下次调用 | 可改到其他磁盘 |
 | RAG 服务 URL | `http://127.0.0.1:8090` | 下次调用 | 仅项目 RAG 模式使用 |
@@ -42,6 +43,19 @@ C:\Users\你的用户名\.dsh\project-knowledge-review\knowledge.json
 | ASR Base URL | `https://api.openai.com/v1` | 下次调用 | OpenAI 兼容 `/audio/transcriptions` 服务根地址 |
 | ASR 模型 | `whisper-1` | 下次调用 | 可改成兼容转写模型名称 |
 | ASR 凭据引用 | `DSH_KNOWLEDGE_ASR_API_KEY` | 下次调用 | 这是引用名，不是 Key 明文 |
+
+### 意图分流与回答策略
+
+插件会先区分：知识问题、知识库自身信息、资料导入和普通工程请求。询问“有哪些资料、存储在哪里、是否与当前项目共用”时使用 `project_knowledge_overview`，不会再误走 evidence 查询和严格拒答链。
+
+- 严格知识库：只有 evidence 命中时才回答，且只陈述资料支持的结论。
+- 参考知识库：知识库 evidence 作为优先上下文；允许当前 DSH 模型补充，但必须把“知识库内容”和“模型补充”分开标注。
+
+### 大规模知识内容浏览
+
+设置页的“知识库内容”默认折叠，展开后才请求数据。列表采用服务端游标分页，每页最多 30 条，只返回标题、来源、状态等元数据；点击单条时才读取原文，单次预览最多 200,000 字符。翻页替换当前页而不无限追加，因此数万条资料时浏览器 DOM 仍保持常数级规模。项目 RAG 使用 `(updated_at, id)` keyset 游标；本地零配置模式使用轻量 JSONL sidecar 索引和单条原文文件，翻页不再重复解析整库原文。旧版 `knowledge.json` 会在首次访问时自动迁移并保留 `.v1.backup.json` 备份。
+
+作用域说明：默认本地库位于 DSH 用户目录并跨工作区共用；项目 RAG 使用独立 `DSH_PLUGIN_RAG_USER_ID` 分区，不会自动等同于当前项目网站登录用户的资料库。
 
 ### API Key 安全行为
 
@@ -82,14 +96,18 @@ C:\Users\你的用户名\.dsh\project-knowledge-review\knowledge.json
 
 ## 可选项目 RAG 增强模式
 
-需要 PDF/Office/扫描件、视频网页 URL、语义向量检索、BM25 + pgvector、重排、RRF、耐久索引任务或大量资料时，使用 `project-rag`：
+需要 PDF/Office/扫描件、视频网页 URL、语义向量检索、BM25 + pgvector、重排、RRF、耐久索引任务或大量资料时，展开设置页的“新手一键准备”：
 
-1. 启动本项目 Python RAG 服务，默认 `http://127.0.0.1:8090`。
-2. 准备 PostgreSQL 与 pgvector；内存模式仅适合临时验证。
-3. 为 Python 服务配置 embedding、rerank、OCR/ASR、视频平台等所需模型和 Key，例如 `DASHSCOPE_API_KEY`、按需配置的 `SOCIALDATAX_API_KEY`。
-4. 在 DSH Web“设置 → 知识复习”中把运行模式切换为“项目 RAG 增强模式”。
+1. 填写 DashScope 模型 Key。点击准备时，插件会先把 Key 安全写入 DSH 凭据库，明文不进入浏览器持久状态、普通设置、项目文件或日志。
+2. 保持默认安装目录，点击“一键准备完整多模态”并确认。
+3. 插件自动检查 Docker、Git、Conda，下载官方项目，创建插件独占的 pgvector 容器、具名数据卷和安装目录内的隔离 Conda 环境，然后执行非破坏性数据库 bootstrap。
+4. 只有 `/health` 和插件固定知识分区接口都通过后，运行模式才自动切换到 `project-rag`。
 
-项目 RAG 模式调用本机回环 `/api/dsh-plugin/rag/*` 接口，使用独立的 `DSH_PLUGIN_RAG_USER_ID` 资料分区，不需要网站登录 Token。DSH 与 Python 是独立进程：DSH 凭据用于插件直接 OCR/ASR；Python RAG 的模型凭据仍需在 Python 服务环境中单独配置。
+数据库密码由插件随机生成，只保存在 DSH 用户私有安装目录。重复启动会复用带插件 ownership label 的容器和持久卷，不会接管、关闭或替换同名但不归插件管理的容器，也不会杀死占用 5433/8090 的其他进程。失败时页面显示原因，默认 `local` 模式始终可继续使用。
+
+一键准备不会声称静默安装 Docker Desktop、WSL2、虚拟化能力或代替用户申请第三方模型 Key；这些属于操作系统或外部账号边界。缺少时页面会明确标出 Docker/Git/Conda 状态。已有高级部署也可以直接填写 RAG 服务 URL 并手动选择 `project-rag`。
+
+项目 RAG 模式调用本机回环 `/api/dsh-plugin/rag/*` 接口，使用独立的 `DSH_PLUGIN_RAG_USER_ID` 资料分区，不需要网站登录 Token，也不会自动与当前项目网站登录用户的资料库共用。
 
 ## 安装与升级
 
@@ -139,9 +157,11 @@ project_knowledge_search
       config:
         enabled: true
         mode: local
+        answerPolicy: strict
         localStorePath: ~/.dsh/project-knowledge-review/knowledge.json
         projectName: 我的知识库
         ragBaseUrl: http://127.0.0.1:8090
+        ragApiKeyEnv: DSH_KNOWLEDGE_RAG_API_KEY
         requestTimeoutMs: 120000
         ocrEnabled: false
         ocrBaseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1

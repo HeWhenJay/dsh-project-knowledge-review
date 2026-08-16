@@ -4,13 +4,16 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 export const KNOWLEDGE_SETTINGS_NAMESPACE = settingsNamespace('project-knowledge-review')
 export const OCR_API_KEY_REF = 'DSH_KNOWLEDGE_OCR_API_KEY'
 export const ASR_API_KEY_REF = 'DSH_KNOWLEDGE_ASR_API_KEY'
+export const RAG_API_KEY_REF = 'DSH_KNOWLEDGE_RAG_API_KEY'
 
 export interface KnowledgeSettings {
   enabled: boolean
   mode: 'local' | 'project-rag'
+  answerPolicy: 'strict' | 'reference'
   localStorePath: string
   projectName: string
   ragBaseUrl: string
+  ragApiKeyEnv: string
   requestTimeoutMs: number
   ocrEnabled: boolean
   ocrBaseUrl: string
@@ -25,9 +28,11 @@ export interface KnowledgeSettings {
 export const KnowledgeSettingsSchema: Schema<KnowledgeSettings> = Schema.object({
   enabled: Schema.boolean().default(true),
   mode: Schema.union(['local', 'project-rag']).default('local'),
+  answerPolicy: Schema.union(['strict', 'reference']).default('strict'),
   localStorePath: Schema.string().default('~/.dsh/project-knowledge-review/knowledge.json'),
   projectName: Schema.string().default('我的知识库'),
   ragBaseUrl: Schema.string().default('http://127.0.0.1:8090'),
+  ragApiKeyEnv: Schema.string().role('credential-ref').default(RAG_API_KEY_REF),
   requestTimeoutMs: Schema.number().min(1000).max(600000).default(120000),
   ocrEnabled: Schema.boolean().default(false),
   ocrBaseUrl: Schema.string().default('https://dashscope.aliyuncs.com/compatible-mode/v1'),

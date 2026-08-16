@@ -1,4 +1,4 @@
-import type { RagQueryPayload, VideoImportPayload } from './types.js'
+import type { RagMaterialPagePayload, RagMaterialPreviewPayload, RagOverviewPayload, RagQueryPayload, VideoImportPayload } from './types.js'
 
 export interface RagClientConfig {
   ragBaseUrl: string
@@ -30,6 +30,22 @@ export async function searchProjectKnowledge(config: RagClientConfig, question: 
     headers: JSON_HEADERS,
     body: JSON.stringify({ question, topK }),
   }, config.requestTimeoutMs)
+}
+
+export async function projectKnowledgeOverview(config: RagClientConfig): Promise<RagOverviewPayload> {
+  return requestJson<RagOverviewPayload>(endpoint(config.ragBaseUrl, '/api/dsh-plugin/rag/overview'), { method: 'GET' }, config.requestTimeoutMs)
+}
+
+export async function listProjectMaterials(config: RagClientConfig, cursor: string | undefined, limit = 30, query = ''): Promise<RagMaterialPagePayload> {
+  const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 100))) })
+  if (cursor) params.set('cursor', cursor)
+  if (query.trim()) params.set('query', query.trim())
+  return requestJson<RagMaterialPagePayload>(endpoint(config.ragBaseUrl, `/api/dsh-plugin/rag/materials?${params}`), { method: 'GET' }, config.requestTimeoutMs)
+}
+
+export async function previewProjectMaterial(config: RagClientConfig, materialId: string): Promise<RagMaterialPreviewPayload> {
+  if (!/^\d+$/.test(materialId)) throw new Error('资料 ID 不合法')
+  return requestJson<RagMaterialPreviewPayload>(endpoint(config.ragBaseUrl, `/api/dsh-plugin/rag/materials/${materialId}/preview`), { method: 'GET' }, config.requestTimeoutMs)
 }
 
 export async function importProjectVideo(config: RagClientConfig, url: string, highPrecision = false): Promise<VideoImportPayload> {

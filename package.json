@@ -1,6 +1,6 @@
 {
   "name": "dsh-project-knowledge-review",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "中文 DSH 知识复习插件：默认零配置本地资料检索，可选连接项目 RAG 增强。",
   "type": "module",
   "license": "MIT",
