@@ -17,9 +17,11 @@ await build({
   platform: 'browser',
   format: 'cjs',
   target: 'es2022',
+  jsx: 'automatic',
+  jsxImportSource: 'react',
   sourcemap: true,
   external,
-  banner: { js: 'window.__ModuleLoader__.load({ id: "dsh-project-knowledge-review", factory: (require) => {' },
+  banner: { js: 'window.__ModuleLoader__.load({ id: "dsh-project-knowledge-review", factory: (require) => { var module = { exports: {} }; var exports = module.exports;' },
   footer: { js: 'return module.exports; } });' },
   define: { 'process.env.NODE_ENV': '"production"' },
 })

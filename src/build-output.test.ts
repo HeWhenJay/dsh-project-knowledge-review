@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
 
 import { importProjectVideo, searchProjectKnowledge } from './client.js'
 
@@ -21,7 +22,33 @@ test('主机端 RAG 客户端不会被网页设置面板覆盖', async () => {
   assert.match(hostClient, /export async function searchProjectKnowledge/)
   assert.doesNotMatch(hostClient, /__ModuleLoader__/)
   assert.match(webClient, /__ModuleLoader__\.load/)
+  assert.match(webClient, /var module = \{ exports: \{\} \}/)
   assert.match(webClient, /settings\.section/)
+})
+
+test('Web bundle 可在 DSH ModuleLoader factory 中执行并返回插件导出', async () => {
+  const webClient = await readFile(new URL('./web-client.js', import.meta.url), 'utf8')
+  let registration: { id: string; factory: (require: (id: string) => unknown) => Record<string, unknown> } | undefined
+  runInNewContext(webClient, {
+    window: {
+      __ModuleLoader__: {
+        load(value: typeof registration) { registration = value },
+      },
+    },
+  })
+  assert.equal(registration?.id, 'dsh-project-knowledge-review')
+  const component = () => null
+  const modules: Record<string, unknown> = {
+    react: { useEffect: () => undefined, useState: (value: unknown) => [value, () => undefined] },
+    'react/jsx-runtime': { jsx: component, jsxs: component, Fragment: Symbol('Fragment') },
+    '@deepseek-ai/dsh-client-ui-primitives': { Button: component, Input: component, StateDot: component },
+  }
+  const exports = registration?.factory((id) => {
+    if (!(id in modules)) throw new Error(`测试缺少浏览器外部模块：${id}`)
+    return modules[id]
+  })
+  assert.equal(typeof exports?.apply, 'function')
+  assert.equal(Array.from(exports?.inject as string[]).join(','), 'slots,connection')
 })
 
 test('插件 Host 入口可动态导入且保留配置与 apply 导出', async () => {
