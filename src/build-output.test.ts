@@ -29,6 +29,14 @@ test('主机端保留独立本地知识库与摘要能力', async () => {
   assert.match(webClient, /sectionHeader.*sectionLabel/)
   assert.match(webClient, /addEventListener\("pointerdown".*true\)/)
   assert.match(webClient, /dsh-taskboard-entry.*dsh-ssh-entry.*data-active/)
+  assert.match(webClient, /limit:\s*"30"/)
+  assert.match(webClient, /new AbortController\(\)/)
+  assert.match(webClient, /documentView !== "source"/)
+  assert.match(webClient, /setRefreshRevision/)
+  assert.match(webClient, /\.inert =/)
+  assert.match(webClient, /role:\s*"tabpanel"/)
+  assert.match(webClient, /prefers-reduced-motion:reduce/)
+  assert.match(webClient, /dsw-alias-state-error-primary/)
 })
 
 test('Web bundle 可在 DSH ModuleLoader factory 中执行并返回插件导出', async () => {

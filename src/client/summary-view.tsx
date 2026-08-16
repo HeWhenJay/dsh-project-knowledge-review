@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import { KNOWLEDGE_ENDPOINT } from '../client-settings.js'
 import { MarkdownText } from './markdown-text.js'
@@ -38,10 +38,42 @@ export function KnowledgeSummaryView({ controller }: { controller: SummaryContro
   const [sourceTruncated, setSourceTruncated] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [navigationOpen, setNavigationOpen] = useState(false)
+  const [compactNavigation, setCompactNavigation] = useState(false)
+  const [refreshRevision, setRefreshRevision] = useState(0)
+  const workspaceRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const navigationRef = useRef<HTMLElement>(null)
+  const navigationToggleRef = useRef<HTMLButtonElement>(null)
+  const navigationCloseRef = useRef<HTMLButtonElement>(null)
+  const inspectorRef = useRef<HTMLElement>(null)
+  const inspectorToggleRef = useRef<HTMLButtonElement>(null)
+  const inspectorCloseRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => controller.subscribe(() => setOpen(controller.getSnapshot().open)), [controller])
+  useEffect(() => {
+    const workspace = workspaceRef.current
+    if (!workspace) return
+    const observer = new ResizeObserver(() => setCompactNavigation(workspace.clientWidth <= 680))
+    observer.observe(workspace)
+    setCompactNavigation(workspace.clientWidth <= 680)
+    return () => observer.disconnect()
+  }, [])
   useEffect(() => { if (open) requestAnimationFrame(() => titleRef.current?.focus()) }, [open])
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      if (inspectorOpen) { event.preventDefault(); setInspectorOpen(false); requestAnimationFrame(() => inspectorToggleRef.current?.focus()); return }
+      if (navigationOpen) { event.preventDefault(); setNavigationOpen(false); requestAnimationFrame(() => navigationToggleRef.current?.focus()); return }
+      controller.close()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [controller, inspectorOpen, navigationOpen, open])
+  useEffect(() => { if (navigationRef.current) navigationRef.current.inert = compactNavigation && !navigationOpen }, [compactNavigation, navigationOpen])
+  useEffect(() => { if (inspectorRef.current) inspectorRef.current.inert = !inspectorOpen }, [inspectorOpen])
+  useEffect(() => { if (navigationOpen) requestAnimationFrame(() => navigationCloseRef.current?.focus()) }, [navigationOpen])
+  useEffect(() => { if (inspectorOpen) requestAnimationFrame(() => inspectorCloseRef.current?.focus()) }, [inspectorOpen])
   useEffect(() => {
     if (!open) return
     const abort = new AbortController()
@@ -63,11 +95,11 @@ export function KnowledgeSummaryView({ controller }: { controller: SummaryContro
       .catch((value) => { if (value.name !== 'AbortError') setError(value instanceof Error ? value.message : '摘要读取失败') })
       .finally(() => { if (!abort.signal.aborted) setLoading(false) })
     return () => abort.abort()
-  }, [open, cursor, query, systemCategory, userCategory])
+  }, [open, cursor, query, systemCategory, userCategory, refreshRevision])
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId), [items, selectedId])
   useEffect(() => {
-    if (!selected || !open) { setSource(''); return }
+    if (!selected || !open || documentView !== 'source') { setSource(''); setSourceLoading(false); setSourceTruncated(false); return }
     const abort = new AbortController()
     setSource(''); setSourceLoading(true); setSourceTruncated(false)
     fetch(`${KNOWLEDGE_ENDPOINT}/materials/${encodeURIComponent(selected.id)}/content`, { cache: 'no-store', signal: abort.signal })
@@ -79,7 +111,7 @@ export function KnowledgeSummaryView({ controller }: { controller: SummaryContro
       .catch((value) => { if (value.name !== 'AbortError') setSource(`> 原始内容读取失败：${value instanceof Error ? value.message : '未知错误'}`) })
       .finally(() => { if (!abort.signal.aborted) setSourceLoading(false) })
     return () => abort.abort()
-  }, [open, selected?.id])
+  }, [documentView, open, selected?.id])
 
   const resetPage = (): void => { setCursor(undefined); setCursorStack([]) }
   const createCategory = async (): Promise<void> => {
@@ -100,25 +132,29 @@ export function KnowledgeSummaryView({ controller }: { controller: SummaryContro
       const payload = await response.json() as { ok: boolean; item?: Material; message?: string }
       if (!response.ok || !payload.ok || !payload.item) throw new Error(payload.message || '分类更新失败')
       setItems((current) => current.map((item) => item.id === payload.item!.id ? payload.item! : item))
-      setUserCounts((current) => {
-        const next = { ...current }; const before = selected.userCategory || '未分类'; const after = value || '未分类'
-        next[before] = Math.max(0, (next[before] ?? 1) - 1); next[after] = (next[after] ?? 0) + 1
-        return next
-      })
+      setRefreshRevision((current) => current + 1)
     } catch (value) { setError(value instanceof Error ? value.message : '分类更新失败') } finally { setMutating(false) }
   }
   const documentContent = documentView === 'summary' ? selected?.summary || '## 知识点摘要\n\n暂无摘要。' : source
+  const closeNavigation = (): void => { setNavigationOpen(false); requestAnimationFrame(() => navigationToggleRef.current?.focus()) }
+  const closeInspector = (): void => { setInspectorOpen(false); requestAnimationFrame(() => inspectorToggleRef.current?.focus()) }
+  const selectDocumentView = (value: DocumentView): void => { setDocumentView(value); requestAnimationFrame(() => document.getElementById(`dsh-knowledge-${value}-tab`)?.focus()) }
+  const onDocumentTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
+    event.preventDefault()
+    selectDocumentView(event.key === 'ArrowLeft' || event.key === 'Home' ? 'summary' : 'source')
+  }
 
-  return <div className="dsh-knowledge-workspace" data-inspector-open={inspectorOpen || undefined} data-navigation-open={navigationOpen || undefined}>
+  return <div ref={workspaceRef} className="dsh-knowledge-workspace" data-inspector-open={inspectorOpen || undefined} data-navigation-open={navigationOpen || undefined}>
     <header className="dsh-knowledge-workspace-bar">
-      <div className="dsh-knowledge-workspace-brand"><button className="dsh-knowledge-navigation-toggle" type="button" aria-label="打开资料导航" aria-expanded={navigationOpen} onClick={() => setNavigationOpen((value) => !value)}><MenuIcon /></button><span className="dsh-knowledge-workspace-mark" aria-hidden="true"><BookIcon /></span><div><h2 ref={titleRef} tabIndex={-1}>知识库</h2><p>{total} 份资料 · 保存在本机</p></div></div>
-      <div className="dsh-knowledge-workspace-actions"><button className="dsh-knowledge-action-button" type="button" data-active={inspectorOpen || undefined} aria-expanded={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}><InfoIcon />资料信息</button><button className="dsh-knowledge-summary-close" onClick={() => controller.close()} aria-label="关闭知识库页面"><CloseIcon /></button></div>
+      <div className="dsh-knowledge-workspace-brand"><button ref={navigationToggleRef} className="dsh-knowledge-navigation-toggle" type="button" aria-label="打开资料导航" aria-controls="dsh-knowledge-navigation" aria-expanded={navigationOpen} onClick={() => navigationOpen ? closeNavigation() : setNavigationOpen(true)}><MenuIcon /></button><span className="dsh-knowledge-workspace-mark" aria-hidden="true"><BookIcon /></span><div><h2 ref={titleRef} tabIndex={-1}>知识库</h2><p>{total} 份资料 · 保存在本机</p></div></div>
+      <div className="dsh-knowledge-workspace-actions"><button ref={inspectorToggleRef} className="dsh-knowledge-action-button" type="button" data-active={inspectorOpen || undefined} aria-controls="dsh-knowledge-inspector" aria-expanded={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : setInspectorOpen(true)}><InfoIcon />资料信息</button><button className="dsh-knowledge-summary-close" type="button" onClick={() => controller.close()} aria-label="关闭知识库页面"><CloseIcon /></button></div>
     </header>
     {error ? <div className="dsh-knowledge-summary-error" role="alert">{error}<small>请检查“设置 → 知识复习”中的本地资料库路径，然后重试。</small></div> : null}
     <div className="dsh-knowledge-workspace-body">
-      <button className="dsh-knowledge-navigation-backdrop" type="button" aria-label="关闭资料导航" onClick={() => setNavigationOpen(false)} />
-      <aside className="dsh-knowledge-library-nav" aria-label="知识库导航">
-        <div className="dsh-knowledge-nav-drawer-head"><span>资料导航</span><button type="button" aria-label="收起资料导航" onClick={() => setNavigationOpen(false)}><CloseIcon /></button></div>
+      <button className="dsh-knowledge-navigation-backdrop" type="button" aria-label="关闭资料导航" onClick={closeNavigation} />
+      <aside ref={navigationRef} id="dsh-knowledge-navigation" className="dsh-knowledge-library-nav" aria-label="知识库导航" aria-hidden={compactNavigation && !navigationOpen || undefined}>
+        <div className="dsh-knowledge-nav-drawer-head"><span>资料导航</span><button ref={navigationCloseRef} type="button" aria-label="收起资料导航" onClick={closeNavigation}><CloseIcon /></button></div>
         <form className="dsh-knowledge-library-search" onSubmit={(event) => { event.preventDefault(); resetPage(); setQuery(queryDraft.trim()) }}><SearchIcon /><Input aria-label="搜索资料标题、来源或摘要" value={queryDraft} placeholder="搜索知识库" onChange={(event) => setQueryDraft(event.target.value)} /><button type="submit" hidden>搜索</button></form>
         <div className="dsh-knowledge-library-scroll">
           <section><h3>浏览</h3><FilterButton icon={<LibraryIcon />} active={!systemCategory} label="全部资料" count={Object.values(systemCounts).reduce((sum, value) => sum + value, 0)} onClick={() => { resetPage(); setSystemCategory(''); setNavigationOpen(false) }} />{Object.entries(systemCounts).map(([name, count]) => <FilterButton key={name} icon={<TagIcon />} active={systemCategory === name} label={name} count={count} onClick={() => { resetPage(); setSystemCategory(name) }} />)}</section>
@@ -133,16 +169,16 @@ export function KnowledgeSummaryView({ controller }: { controller: SummaryContro
           <div className="dsh-knowledge-reader-scroll">
             <div className="dsh-knowledge-reader-document">
               <div className="dsh-knowledge-reader-head"><div className="dsh-knowledge-reader-breadcrumb"><BookIcon /><span>知识库</span><ChevronIcon /><strong>{selected.systemCategory || '待分类'}</strong></div><h1>{selected.title}</h1><div className="dsh-knowledge-reader-meta"><span><SourceIcon />{selected.source || '未标注来源'}</span><span><SparkleIcon />{selected.summarySource === 'model' ? 'DSH 模型摘要' : '本地自动提要'}</span><span><ClockIcon />{formatRelativeTime(selected.updatedAt || selected.createdAt)}</span></div></div>
-              <div className="dsh-knowledge-reader-controls"><div className="dsh-knowledge-reader-tabs" role="tablist" aria-label="资料阅读内容"><button role="tab" aria-selected={documentView === 'summary'} onClick={() => setDocumentView('summary')}>摘要</button><button role="tab" aria-selected={documentView === 'source'} onClick={() => setDocumentView('source')}>原始内容</button></div><div className="dsh-knowledge-render-toggle" aria-label="显示模式"><button aria-pressed={renderMode === 'preview'} onClick={() => setRenderMode('preview')}><PreviewIcon />渲染</button><button aria-pressed={renderMode === 'markdown'} onClick={() => setRenderMode('markdown')}><CodeIcon />Markdown 源码</button></div></div>
-              <div className="dsh-knowledge-reader-status">{documentView === 'source' && sourceLoading ? '正在按需读取原始内容…' : sourceTruncated && documentView === 'source' ? '原始内容较长，当前显示截断预览' : documentView === 'source' ? `${selected.contentLength.toLocaleString('zh-CN')} 字符` : null}</div>
-              <article className="dsh-knowledge-reader-canvas">{sourceLoading && documentView === 'source' ? <div className="dsh-knowledge-summary-empty">正在读取原始内容…</div> : renderMode === 'preview' ? <MarkdownText content={documentContent} /> : <pre className="dsh-knowledge-markdown-source"><code>{documentContent}</code></pre>}</article>
+              <div className="dsh-knowledge-reader-controls"><div className="dsh-knowledge-reader-tabs" role="tablist" aria-label="资料阅读内容"><button id="dsh-knowledge-summary-tab" type="button" role="tab" aria-controls="dsh-knowledge-document-panel" aria-selected={documentView === 'summary'} tabIndex={documentView === 'summary' ? 0 : -1} onKeyDown={onDocumentTabKeyDown} onClick={() => setDocumentView('summary')}>摘要</button><button id="dsh-knowledge-source-tab" type="button" role="tab" aria-controls="dsh-knowledge-document-panel" aria-selected={documentView === 'source'} tabIndex={documentView === 'source' ? 0 : -1} onKeyDown={onDocumentTabKeyDown} onClick={() => setDocumentView('source')}>原始内容</button></div><div className="dsh-knowledge-render-toggle" aria-label="显示模式"><button type="button" aria-pressed={renderMode === 'preview'} onClick={() => setRenderMode('preview')}><PreviewIcon />渲染</button><button type="button" aria-pressed={renderMode === 'markdown'} onClick={() => setRenderMode('markdown')}><CodeIcon />Markdown 源码</button></div></div>
+              <div className="dsh-knowledge-reader-status" aria-live="polite">{documentView === 'source' && sourceLoading ? '正在按需读取原始内容…' : sourceTruncated && documentView === 'source' ? '原始内容较长，当前显示截断预览' : documentView === 'source' ? `${selected.contentLength.toLocaleString('zh-CN')} 字符` : null}</div>
+              <article id="dsh-knowledge-document-panel" className="dsh-knowledge-reader-canvas" role="tabpanel" aria-labelledby={`dsh-knowledge-${documentView}-tab`} tabIndex={0}>{sourceLoading && documentView === 'source' ? <div className="dsh-knowledge-summary-empty">正在读取原始内容…</div> : renderMode === 'preview' ? <MarkdownText content={documentContent} /> : <pre className="dsh-knowledge-markdown-source"><code>{documentContent}</code></pre>}</article>
             </div>
           </div>
         </> : <div className="dsh-knowledge-reader-welcome"><span className="dsh-knowledge-workspace-mark"><BookIcon /></span><h2>选择一份资料开始阅读</h2><p>摘要和原始内容都支持安全 Markdown 预览。</p></div>}
       </main>
-      <button className="dsh-knowledge-inspector-backdrop" type="button" aria-label="关闭资料信息" onClick={() => setInspectorOpen(false)} />
-      <aside className="dsh-knowledge-inspector" aria-label="资料信息">
-        {selected ? <><div className="dsh-knowledge-inspector-title"><div><span>资料信息</span><small>仅保存在插件本地库</small></div><button type="button" aria-label="关闭资料信息" onClick={() => setInspectorOpen(false)}><CloseIcon /></button></div><div className="dsh-knowledge-inspector-content"><label className="dsh-knowledge-inspector-category"><span>我的分类</span><select value={selected.userCategory ?? ''} disabled={mutating} onChange={(event) => void move(event.target.value || null)}><option value="">未分类</option>{userCategories.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><div className="dsh-knowledge-property-group"><h3>文档</h3><Property icon={<SourceIcon />} label="来源" value={selected.source || '未标注'} /><Property icon={<TagIcon />} label="系统分类" value={selected.systemCategory || '待分类'} /><Property icon={<SparkleIcon />} label="摘要来源" value={selected.summarySource === 'model' ? '当前 DSH 模型' : '本地自动提要'} /><Property icon={<DocumentIcon />} label="字符数" value={selected.contentLength.toLocaleString('zh-CN')} /></div><div className="dsh-knowledge-property-group"><h3>时间</h3><Property icon={<ClockIcon />} label="创建时间" value={formatTime(selected.createdAt)} /><Property icon={<ClockIcon />} label="更新时间" value={formatTime(selected.updatedAt || selected.createdAt)} /></div><div className="dsh-knowledge-property-group"><h3>标识</h3><Property icon={<HashIcon />} label="资料 ID" value={selected.id} mono /></div><div className="dsh-knowledge-inspector-note"><LockIcon /><span>公开插件不会连接任何外部项目。项目侧如需使用资料，应主动同步。</span></div></div></> : null}
+      <button className="dsh-knowledge-inspector-backdrop" type="button" aria-label="关闭资料信息" onClick={closeInspector} />
+      <aside ref={inspectorRef} id="dsh-knowledge-inspector" className="dsh-knowledge-inspector" aria-label="资料信息" aria-hidden={!inspectorOpen || undefined}>
+        {selected ? <><div className="dsh-knowledge-inspector-title"><div><span>资料信息</span><small>仅保存在插件本地库</small></div><button ref={inspectorCloseRef} type="button" aria-label="关闭资料信息" onClick={closeInspector}><CloseIcon /></button></div><div className="dsh-knowledge-inspector-content"><label className="dsh-knowledge-inspector-category"><span>我的分类</span><select value={selected.userCategory ?? ''} disabled={mutating} onChange={(event) => void move(event.target.value || null)}><option value="">未分类</option>{userCategories.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><div className="dsh-knowledge-property-group"><h3>文档</h3><Property icon={<SourceIcon />} label="来源" value={selected.source || '未标注'} /><Property icon={<TagIcon />} label="系统分类" value={selected.systemCategory || '待分类'} /><Property icon={<SparkleIcon />} label="摘要来源" value={selected.summarySource === 'model' ? '当前 DSH 模型' : '本地自动提要'} /><Property icon={<DocumentIcon />} label="字符数" value={selected.contentLength.toLocaleString('zh-CN')} /></div><div className="dsh-knowledge-property-group"><h3>时间</h3><Property icon={<ClockIcon />} label="创建时间" value={formatTime(selected.createdAt)} /><Property icon={<ClockIcon />} label="更新时间" value={formatTime(selected.updatedAt || selected.createdAt)} /></div><div className="dsh-knowledge-property-group"><h3>标识</h3><Property icon={<HashIcon />} label="资料 ID" value={selected.id} mono /></div><div className="dsh-knowledge-inspector-note"><LockIcon /><span>公开插件不会连接任何外部项目。项目侧如需使用资料，应主动同步。</span></div></div></> : null}
       </aside>
     </div>
   </div>

@@ -149,6 +149,9 @@ function installKnowledgeReviewVisuals(): () => void {
     body[data-ds-dark-theme] .dsh-knowledge-markdown{color:color-mix(in srgb,var(--dsw-alias-label-primary) 78%,var(--dsw-alias-label-secondary));line-height:1.92}body[data-ds-dark-theme] .dsh-knowledge-markdown li{margin-block:8px}body[data-ds-dark-theme] .dsh-knowledge-reader-meta,body[data-ds-dark-theme] .dsh-knowledge-reader-breadcrumb,body[data-ds-dark-theme] .dsh-knowledge-render-toggle button,body[data-ds-dark-theme] .dsh-knowledge-library-scroll section>button:not(.dsh-knowledge-document-row),body[data-ds-dark-theme] .dsh-knowledge-document-row small{color:var(--dsw-alias-label-secondary)}body[data-ds-dark-theme] .dsh-knowledge-reader-tabs button:not([aria-selected=true]){color:var(--dsw-alias-label-secondary)}body[data-ds-dark-theme] .dsh-knowledge-render-toggle button[aria-pressed=true]{color:var(--dsw-alias-label-primary)}
     html[data-dsh-knowledge-summary-active] [data-pane='sidebar'] [role='treeitem'][aria-selected='true']{background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font-weight:inherit!important}
     .dsh-knowledge-library-scroll section>button:not(.dsh-knowledge-document-row)[data-active]{color:var(--dsw-alias-label-secondary);font-weight:620}
+    .dsh-knowledge-summary-error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d24b4b) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d24b4b) 10%,var(--dsw-alias-button-elevated-fill,var(--dsw-alias-bg-base)));color:var(--dsw-alias-state-error-primary,#d24b4b)}
+    .dsh-knowledge-summary-entry:focus-visible,.dsh-knowledge-workspace :is(button,select,summary,[role='tabpanel']):focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dsh-knowledge-summary-entry:focus-visible{outline-offset:-2px}
+    @media (prefers-reduced-motion:reduce){.dsh-knowledge-workspace *,.dsh-knowledge-summary-entry{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
   `
   document.head.appendChild(style)
   const markNavigation = (): void => {
@@ -469,7 +472,7 @@ const styles: Record<string, CSSProperties> = {
   overviewGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, paddingTop: 14 },
   storePath: { padding: '8px 10px', borderRadius: 7, background: 'var(--dsw-alias-background-l2)', color: 'var(--dsw-alias-label-secondary)', fontSize: 11, overflowWrap: 'anywhere' },
   browserSearch: { display: 'flex', alignItems: 'center', gap: 8 },
-  browserError: { padding: 10, borderRadius: 8, background: 'color-mix(in srgb, #d24b4b 10%, transparent)', color: '#a33131', fontSize: 12 },
+  browserError: { padding: 10, borderRadius: 8, background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary, #d24b4b) 10%, transparent)', color: 'var(--dsw-alias-state-error-primary, #d24b4b)', fontSize: 12 },
   browserEmpty: { padding: '22px 10px', color: 'var(--dsw-alias-label-tertiary)', textAlign: 'center', fontSize: 12 },
   materialList: { display: 'flex', flexDirection: 'column', gap: 6 },
   materialRow: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 9, overflow: 'hidden' },
