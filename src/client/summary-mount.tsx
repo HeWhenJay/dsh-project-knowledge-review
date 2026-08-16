@@ -29,7 +29,9 @@ export function mountSummarySidebar(controller: SummaryController): () => void {
   entry.type = 'button'; entry.dataset.dshKnowledgeSummaryEntry = ''; entry.className = 'dsh-knowledge-summary-entry'; entry.title = '知识库'; entry.setAttribute('aria-label', '打开知识库页面')
   entry.innerHTML = '<span class="dsh-knowledge-summary-entry-icon"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13.2A1.7 1.7 0 0 1 4.7 11.5H13"/><path d="M4.7 2H13v12H4.7A1.7 1.7 0 0 1 3 12.3V3.7A1.7 1.7 0 0 1 4.7 2Z"/><path d="M6 5h5M6 7.8h4"/></svg></span><span class="dsh-knowledge-summary-entry-label">知识库</span>'
   entry.addEventListener('click', () => {
-    if (!controller.getSnapshot().open) document.querySelector<HTMLButtonElement>('[data-dsh-taskboard-entry][data-active]')?.click()
+    if (!controller.getSnapshot().open) {
+      document.querySelectorAll<HTMLButtonElement>('[data-dsh-taskboard-entry][data-active], [data-dsh-ssh-entry][data-active]').forEach((panelEntry) => panelEntry.click())
+    }
     controller.toggle()
   })
   const sync = (): void => { if (controller.getSnapshot().open) entry.dataset.active = 'true'; else delete entry.dataset.active }
