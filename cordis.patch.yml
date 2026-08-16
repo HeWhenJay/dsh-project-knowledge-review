@@ -1,0 +1,8 @@
+- insert:
+    - id: project-knowledge-review
+      name: dsh-project-knowledge-review
+      config:
+        ragBaseUrl: http://127.0.0.1:8090
+        projectName: 学迹智配 Agent
+        authorizationToken: ''
+        requestTimeoutMs: 120000
