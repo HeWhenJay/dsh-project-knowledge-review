@@ -296,7 +296,7 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
 
     <Card title="基础服务" description="关闭后系统提示词保持静默，所有知识复习工具都会拒绝执行。">
       <Toggle label="开启知识复习服务" checked={settings.enabled} disabled={busy} onChange={(value) => void saveField('enabled', value)} />
-      <Field label="回答策略" help="严格知识库只允许 evidence 结论；参考知识库允许模型补充，但会明确标注来源边界。">
+      <Field label="回答策略" help="严格知识库只允许 evidence 结论；知识库仅供参考允许模型补充，但会明确标注来源边界。">
         <PolicySelect value={settings.answerPolicy} disabled={busy} onChange={(value) => void saveField('answerPolicy', value)} />
       </Field>
       <TextField label="知识库名称" value={settings.projectName} disabled={busy} onChange={(value) => updateDraft('projectName', value)} onSave={() => void saveField('projectName', settings.projectName)} />
@@ -339,7 +339,7 @@ function PolicySelect(props: { value: KnowledgeSettingsView['answerPolicy']; dis
       <strong>严格知识库</strong><span style={styles.policyDescription}>仅根据已有 evidence 回答；无证据时拒答</span>
     </button>
     <button type="button" style={{ ...styles.policyOption, ...(props.value === 'reference' ? styles.policyOptionActive : {}) }} disabled={props.disabled} onClick={() => props.onChange('reference')}>
-      <strong>参考知识库</strong><span style={styles.policyDescription}>知识库优先，允许明确标注的模型补充</span>
+      <strong>知识库仅供参考</strong><span style={styles.policyDescription}>知识库优先，允许明确标注的模型补充</span>
     </button>
   </div>
 }

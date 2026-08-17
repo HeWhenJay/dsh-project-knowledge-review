@@ -5,7 +5,7 @@
         # 公开插件只使用自己的本地资料库，不连接或安装任何外部项目。
         enabled: true
         # strict：仅知识库证据；reference：知识库优先，可标注模型补充。
-        answerPolicy: strict
+        answerPolicy: reference
         localStorePath: ~/.dsh/project-knowledge-review/knowledge.json
         projectName: 我的知识库
         requestTimeoutMs: 120000

@@ -32,10 +32,10 @@ dsh plugin --profile web add dsh-project-knowledge-review
 - “设置”页面出现“知识复习”；
 - 新会话可以使用 `project_knowledge_*` 工具。
 
-第一次使用不需要配置数据库、向量模型、账号或 Token。默认设置已经可以保存文字资料并严格基于证据回答：
+第一次使用不需要配置数据库、向量模型、账号或 Token。默认使用“知识库仅供参考”：仍会先检索本地资料，再把知识库证据与模型补充分区展示。
 
 ```text
-回答策略：strict
+回答策略：reference
 资料库：~/.dsh/project-knowledge-review/knowledge.json
 OCR：关闭
 ASR：关闭
@@ -92,13 +92,17 @@ RAG 在生成回答前先检索资料库。严格模式要求回答引用资料�
 
 插件会先调用 `project_knowledge_search`。只有返回了 evidence，当前 DSH 模型才会基于证据回答，并引用资料标题与来源。
 
-如果资料里没有答案，默认 `strict` 模式会明确回复：
+默认 `reference` 模式会固定区分：
 
 ```text
-当前知识库中没有足够证据，不能回答
+## 知识库内容
+基于本地 evidence 的结论；未命中时明确说明知识库没有相关资料。
+
+## 模型补充
+当前模型提供的通用知识，不冒充知识库结论。
 ```
 
-这不是故障。补充相关资料后重新提问即可；插件不会用模型记忆悄悄补齐缺失结论。
+如果你希望资料里没有答案就完全拒答，可以在“设置 → 知识复习”切换为 `strict`。
 
 ## 常用操作速查
 
@@ -123,7 +127,7 @@ RAG 在生成回答前先检索资料库。严格模式要求回答引用资料�
 
 ## 回答策略
 
-### `strict`（默认）
+### `strict`
 
 - 知识问题必须先检索。
 - 只有 `answerStatus=ANSWERED` 且 evidence 非空时才能回答。
@@ -131,7 +135,7 @@ RAG 在生成回答前先检索资料库。严格模式要求回答引用资料�
 - 没有证据时必须明确说明：`当前知识库中没有足够证据，不能回答`。
 - 不使用模型记忆补齐知识结论。
 
-### `reference`
+### `reference`（默认，界面显示“知识库仅供参考”）
 
 - 仍先检索知识库。
 - 允许当前模型补充通用知识。
@@ -203,7 +207,7 @@ OCR / ASR 默认关闭。启用步骤：
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 关闭后工具和提示词保持静默 |
-| `answerPolicy` | `strict` | `strict` 或 `reference` |
+| `answerPolicy` | `reference` | 默认“知识库仅供参考”；可切换为严格 `strict` |
 | `localStorePath` | `~/.dsh/project-knowledge-review/knowledge.json` | 插件自己的本地资料库 |
 | `projectName` | `我的知识库` | 用户可见名称；仅是命名，不是外部项目 |
 | `requestTimeoutMs` | `120000` | OCR / ASR 请求超时 |

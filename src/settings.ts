@@ -23,7 +23,7 @@ export interface KnowledgeSettings {
 
 export const KnowledgeSettingsSchema: Schema<KnowledgeSettings> = Schema.object({
   enabled: Schema.boolean().default(true),
-  answerPolicy: Schema.union(['strict', 'reference']).default('strict'),
+  answerPolicy: Schema.union(['strict', 'reference']).default('reference'),
   localStorePath: Schema.string().default('~/.dsh/project-knowledge-review/knowledge.json'),
   projectName: Schema.string().default('我的知识库'),
   requestTimeoutMs: Schema.number().min(1000).max(600000).default(120000),
