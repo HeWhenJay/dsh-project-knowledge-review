@@ -194,15 +194,19 @@ function KnowledgeReviewSettings({ api }: SectionProps): ReactNode {
   const [credentials, setCredentials] = useState<Record<string, CredentialState>>({})
 
   const load = async (): Promise<void> => {
+    const abort = new AbortController()
+    const timeout = window.setTimeout(() => abort.abort(), 10_000)
     try {
-      const response = await fetch(SETTINGS_ENDPOINT, { cache: 'no-store' })
+      const response = await fetch(SETTINGS_ENDPOINT, { cache: 'no-store', signal: abort.signal })
       const payload = await response.json() as SettingsEnvelope
       if (!response.ok || !payload.ok || !payload.value) throw new Error(payload.message || '设置读取失败')
       setSettings(payload.value)
       setRevision(payload.revision)
       await loadCredentials(payload.value)
     } catch (error) {
-      setNotice(messageOf(error))
+      setNotice(error instanceof DOMException && error.name === 'AbortError' ? '设置读取超时。插件升级后请刷新 DSH 页面；若仍未恢复，再重启当前 DSH Web 进程。' : messageOf(error))
+    } finally {
+      window.clearTimeout(timeout)
     }
   }
 

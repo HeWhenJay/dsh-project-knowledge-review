@@ -58,6 +58,8 @@ export declare function listLocalSummaries(path: string, cursor: string | undefi
 }>;
 /** 创建用户二次分类；空分类也独立持久化，便于先建目录再整理资料。 */
 export declare function createLocalUserCategory(path: string, name: string): Promise<string[]>;
+/** 替换一份本地资料正文并原子重建摘要、分类和检索索引。 */
+export declare function replaceLocalDocumentContent(path: string, id: string, content: string, summary?: string): Promise<LocalKnowledgeDocument>;
 /** 更新本地摘要、摘要来源、系统初分类或用户二次分类。 */
 export declare function updateLocalDocumentMetadata(path: string, id: string, patch: {
     summary?: string;
